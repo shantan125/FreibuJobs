@@ -10,7 +10,7 @@ python-telegram-bot==21.0.1
 selenium==4.15.2
 
 # Configuration Management
-python-dotenv==1.0.0
+python-dotenv==1.1.1
 
 # Type Hints Support
 typing-extensions==4.8.0
