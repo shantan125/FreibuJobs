@@ -1,0 +1,35 @@
+# requirements for a python project using python-telegram-bot, selenium, and python-dotenv
+
+# LinkedIn Job & Internship Bot - Professional Requirements
+# Core dependencies for professional Telegram bot with LinkedIn scraping
+
+# Telegram Bot Framework
+python-telegram-bot==21.0.1
+
+# Web Scraping
+selenium==4.15.2
+
+# Configuration Management
+python-dotenv==1.0.0
+
+# Type Hints Support
+typing-extensions==4.8.0
+
+# Web Server for Health Checks (Azure Container Apps)
+aiohttp==3.9.1
+
+# System Monitoring (for enhanced health checks and logging)
+psutil==5.9.6
+
+# Development Dependencies (optional)
+# pytest==7.4.3
+# pytest-asyncio==0.21.1
+# black==23.11.0
+# flake8==6.1.0
+# mypy==1.7.1
+
+# System Requirements
+# - Python 3.8+
+# - Chrome/Chromium browser
+# - ChromeDriver (auto-detected or manually installed)
+webdriver-manager==4.0.1
