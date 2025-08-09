@@ -19,7 +19,7 @@ typing-extensions==4.8.0
 aiohttp==3.9.1
 
 # System Monitoring (for enhanced health checks and logging)
-psutil==5.9.6
+psutil==7.0.0
 
 # Development Dependencies (optional)
 # pytest==7.4.3
