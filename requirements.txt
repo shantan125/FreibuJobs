@@ -13,7 +13,7 @@ selenium==4.15.2
 python-dotenv==1.0.0
 
 # Type Hints Support
-typing-extensions==4.8.0
+typing-extensions==4.14.1
 
 # Web Server for Health Checks (Azure Container Apps)
 aiohttp==3.9.1
