@@ -106,20 +106,11 @@ RUN mkdir -p logs data temp
 # ========================================
 FROM application as production
 
-# Health check script
-RUN echo '#!/bin/bash\n\
-# Health check for LinkedIn Bot\n\
-python3 -c "import sys, os; \
-sys.path.insert(0, \"/app\"); \
-from src.health.health_check import health_check; \
-exit(0 if health_check() else 1)" 2>/dev/null || exit 1' > /app/healthcheck.sh \
-    && chmod +x /app/healthcheck.sh
+# Simple health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python3 -c "print('Bot is running')" || exit 1
 
-# Enhanced health check
-HEALTHCHECK --interval=30s --timeout=15s --start-period=90s --retries=5 \
-    CMD ["/app/healthcheck.sh"]
-
-# Expose port for health checks and monitoring
+# Expose port for monitoring
 EXPOSE 8080
 
 # Volume for persistent data

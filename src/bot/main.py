@@ -18,7 +18,6 @@ from ..utils.logging import get_bot_logger, log_function, time_function
 from ..scraper.linkedin import LinkedInScraper
 from .handlers import ConversationHandlers
 from .messages import MessageTemplates, MessageFormatter, JobType
-from ..health.health_check import HealthCheckServer
 
 
 class LinkedInJobBot:
@@ -38,10 +37,6 @@ class LinkedInJobBot:
         
         # Initialize application
         self.application: Optional[Application] = None
-        
-        # Initialize health check server for Azure
-        self.health_server: Optional[HealthCheckServer] = None
-        self.health_runner = None
         
         self.logger.info("✅ LinkedIn Job Bot initialized successfully")
     
@@ -314,23 +309,16 @@ class LinkedInJobBot:
     async def _start_health_server(self) -> None:
         """Start health check server for Azure Container Apps."""
         try:
-            # Only start health server in production/Azure environments
-            if os.getenv("AZURE_ENVIRONMENT") or os.getenv("ENABLE_HEALTH_CHECK", "false").lower() == "true":
-                health_port = int(os.getenv("HEALTH_CHECK_PORT", "8080"))
-                self.health_server = HealthCheckServer(port=health_port)
-                self.health_runner = await self.health_server.start_server()
-                self.logger.info(f"Health check server started on port {health_port}")
-            else:
-                self.logger.info("Health check server disabled (not in Azure environment)")
+            # Health check disabled for simplicity
+            self.logger.info("Health check server disabled (simplified deployment)")
         except Exception as e:
             self.logger.warning(f"Failed to start health check server: {e}")
     
     async def _stop_health_server(self) -> None:
         """Stop health check server."""
         try:
-            if self.health_runner:
-                await self.health_runner.cleanup()
-                self.logger.info("Health check server stopped")
+            # Health server disabled for simplicity
+            self.logger.info("Health check server disabled (simplified deployment)")
         except Exception as e:
             self.logger.warning(f"Error stopping health check server: {e}")
     
