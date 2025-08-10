@@ -230,44 +230,42 @@ class ConversationHandlers:
                 
                 self.logger.info(f"Sent job {found_count} to user {user_id}: {job_url}")
             
-            # Step 3: Begin streaming search process
+            # Step 3: Begin TRUE real-time streaming search
             try:
                 # Choose the appropriate search method based on job type
                 if job_type == JobType.JOB:
-                    # Use non-streaming method but simulate streaming
-                    job_urls = scraper.search_jobs(
+                    # Use TRUE streaming method - jobs sent immediately as found
+                    job_urls = await scraper.search_jobs_streaming(
                         keyword=search_query, 
                         max_results=max_results,
-                        time_filter=self.config.search_config.time_filter
+                        time_filter=self.config.search_config.time_filter,
+                        job_callback=job_found_callback  # Real-time streaming callback
                     )
                 else:  # INTERNSHIP
-                    # Use non-streaming method but simulate streaming
-                    job_urls = scraper.search_internships(
+                    # Use TRUE streaming method - internships sent immediately as found
+                    job_urls = await scraper.search_internships_streaming(
                         keyword=search_query, 
                         max_results=max_results,
-                        time_filter=self.config.search_config.time_filter
+                        time_filter=self.config.search_config.time_filter,
+                        job_callback=job_found_callback  # Real-time streaming callback
                     )
                 
-                # Simulate streaming by sending jobs one by one with delays
-                import asyncio
-                for i, job_url in enumerate(job_urls, 1):
-                    await job_found_callback(job_url)
-                    # Add small delay between jobs to simulate real-time discovery
-                    if i < len(job_urls):  # Don't delay after the last job
-                        await asyncio.sleep(2)  # 2 second delay between jobs
+                # Note: Jobs are already sent via job_found_callback during the search
+                # The job_urls list contains all found URLs for logging purposes
                 
                 # Step 4: Send completion message
-                if found_count > 0:
+                total_found = len(job_urls)
+                if total_found > 0:
                     await update.message.reply_text(
                         f"**Search Complete!**\n\n"
-                        f"**Total Found**: {found_count} {role} opportunities\n"
+                        f"**Total Found**: {total_found} {role} opportunities\n"
                         f"**Search Strategy**: India → Remote → Global\n"
                         f"**Search Time**: {time.strftime('%H:%M:%S')}\n\n"
                         f"**Good luck with your applications!**\n"
                         f"**Use /start to search for different roles**",
                         parse_mode='Markdown'
                     )
-                    self.logger.info(f"Completed streaming search for user {user_id}: {found_count} jobs sent")
+                    self.logger.info(f"Completed streaming search for user {user_id}: {total_found} jobs sent")
                 else:
                     # No results found
                     no_results_msg = (

@@ -36,53 +36,41 @@ class LinkedInScraper:
     def __init__(self, config_manager: ConfigurationManager):
         """Initialize the LinkedIn scraper with configuration."""
         self.config = config_manager
-        self.logger = get_bot_logger().get_logger('scraper.linkedin')
+        self.logger = get_bot_logger(__name__)
         self.driver = None
         self.is_logged_in = False
         
     def _setup_driver(self) -> webdriver.Chrome:
-        """Set up Chrome WebDriver with enhanced anti-detection for LinkedIn scraping."""
+        """Set up Chrome WebDriver with optimal configuration for LinkedIn scraping."""
         try:
             chrome_options = Options()
             
-            # Enhanced anti-detection measures
+            # Performance and stability options
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--disable-extensions")
             chrome_options.add_argument("--disable-plugins")
-            # DON'T disable images and javascript - LinkedIn needs them
-            # chrome_options.add_argument("--disable-images")
-            # chrome_options.add_argument("--disable-javascript")
+            chrome_options.add_argument("--disable-images")
+            chrome_options.add_argument("--disable-javascript")
             
-            # Strong anti-detection measures
+            # Anti-detection measures
             chrome_options.add_argument("--disable-blink-features=AutomationControlled")
             chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
             chrome_options.add_experimental_option('useAutomationExtension', False)
             
-            # More realistic user agent (latest Chrome)
+            # User agent to appear more legitimate
             chrome_options.add_argument(
                 "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
             
-            # Additional stealth options
-            chrome_options.add_argument("--disable-web-security")
-            chrome_options.add_argument("--allow-running-insecure-content")
-            chrome_options.add_argument("--disable-features=TranslateUI")
-            chrome_options.add_argument("--disable-ipc-flooding-protection")
-            
-            # Window size and display
-            chrome_options.add_argument("--window-size=1366,768")  # Common laptop resolution
-            chrome_options.add_argument("--start-maximized")
-            
-            # Don't run headless initially to avoid detection
-            # if self.config.webdriver_config.headless:
-            #     chrome_options.add_argument("--headless")
+            # Headless mode for production
+            if self.config.scraper_config.headless:
+                chrome_options.add_argument("--headless")
             
             # Window size
-            chrome_options.add_argument("--window-size=1366,768")  # Common laptop resolution
-            chrome_options.add_argument("--start-maximized")
+            chrome_options.add_argument("--window-size=1920,1080")
             
             # Create service
             service = Service(ChromeDriverManager().install())
@@ -90,18 +78,10 @@ class LinkedInScraper:
             # Create driver
             driver = webdriver.Chrome(service=service, options=chrome_options)
             
-            # Enhanced anti-detection scripts
+            # Additional anti-detection
             driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            driver.execute_script("Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]})")
-            driver.execute_script("Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']})")
-            driver.execute_script("window.chrome = { runtime: {} }")
             
-            # Set additional properties to mimic real browser
-            driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-                "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-            })
-            
-            self.logger.info("Chrome WebDriver initialized with enhanced anti-detection")
+            self.logger.info("Chrome WebDriver initialized successfully")
             return driver
             
         except Exception as e:
@@ -148,53 +128,15 @@ class LinkedInScraper:
             all_found_urls = set()
             
         try:
-            # Wait for job listings to load with multiple possible selectors
-            wait = WebDriverWait(driver, 15)
+            # Wait for job listings to load
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, ".jobs-search__results-list"))
+            )
             
-            # Try different selectors for job listings container
-            container_selectors = [
-                ".jobs-search__results-list",
-                ".jobs-search-results__list", 
-                ".job-search-results-list"
-            ]
+            # Find all job links on the current page
+            job_elements = driver.find_elements(By.CSS_SELECTOR, "a[data-control-name='job_card_click']")
             
-            container_found = False
-            for selector in container_selectors:
-                try:
-                    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
-                    self.logger.info(f"Found job container using selector: {selector}")
-                    container_found = True
-                    break
-                except:
-                    continue
-            
-            if not container_found:
-                self.logger.warning("No job container found, proceeding anyway...")
-                await asyncio.sleep(3)  # Give page more time to load
-            
-            # Use the correct job link selector based on our debug findings
-            job_link_selectors = [
-                "a[href*='/jobs/view/']",  # This worked in our debug (61 elements)
-                "a[data-control-name='job_card_click']",  # Original selector (didn't work)
-                ".base-search-card a[href*='/jobs/view/']",  # More specific
-                ".jobs-search__results-list a[href*='/jobs/view/']"  # Even more specific
-            ]
-            
-            job_elements = []
-            for selector in job_link_selectors:
-                job_elements = driver.find_elements(By.CSS_SELECTOR, selector)
-                if len(job_elements) > 0:
-                    self.logger.info(f"Found {len(job_elements)} job elements using selector: {selector}")
-                    break
-                else:
-                    self.logger.debug(f"Selector '{selector}' found 0 elements")
-            
-            if len(job_elements) == 0:
-                self.logger.warning("No job elements found with any selector")
-                # Log page source snippet for debugging
-                page_source = driver.page_source[:1000]
-                self.logger.debug(f"Page source snippet: {page_source}")
-                return job_urls
+            self.logger.info(f"Found {len(job_elements)} job elements on page")
             
             for job_element in job_elements:
                 if found_count >= max_results:
@@ -308,8 +250,6 @@ class LinkedInScraper:
         
         This method performs the actual web scraping and streams results in real-time.
         """
-        import random
-        
         job_urls = []
         
         if all_found_urls is None:
@@ -319,38 +259,12 @@ class LinkedInScraper:
         try:
             driver = self._get_driver()
             
-            # Random delay to appear more human-like
-            await asyncio.sleep(random.uniform(1.0, 3.0))
-            
             # Build and navigate to search URL
             search_url = self._build_search_url(keyword, location, is_internship, time_filter)
-            
-            self.logger.info(f"Navigating to: {search_url}")
             driver.get(search_url)
             
-            # Check if we're redirected to login or blocked
-            current_url = driver.current_url.lower()
-            page_source = driver.page_source.lower()
-            
-            if "login" in current_url:
-                self.logger.error("Redirected to LinkedIn login page - authentication required")
-                return job_urls
-            elif "challenge" in current_url or "captcha" in page_source:
-                self.logger.error("LinkedIn CAPTCHA or challenge detected")
-                return job_urls
-            elif "blocked" in page_source:
-                self.logger.error("LinkedIn blocked automated access")
-                return job_urls
-            
-            # Human-like page interaction
-            await asyncio.sleep(random.uniform(3.0, 5.0))
-            
-            # Scroll to simulate human behavior
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight/3);")
-            await asyncio.sleep(random.uniform(1.0, 2.0))
-            
-            driver.execute_script("window.scrollTo(0, 0);")
-            await asyncio.sleep(random.uniform(1.0, 2.0))
+            # Wait for page to load
+            await asyncio.sleep(3)
             
             # Extract job URLs with streaming
             job_urls = await self._extract_job_urls_streaming(
@@ -413,12 +327,12 @@ class LinkedInScraper:
     async def _streaming_search(self, keyword: str, is_internship: bool, max_results: int,
                               time_filter: str, job_callback: Optional[Callable] = None) -> List[str]:
         """
-        Core streaming search implementation with multi-tier strategy and fallback.
+        Core streaming search implementation with multi-tier strategy.
         
         Strategy:
-        1. Attempt real LinkedIn scraping with anti-detection measures
-        2. Fallback to non-streaming method if blocked
-        3. Fallback to mock data for testing if all else fails
+        1. India-specific locations (primary tier)
+        2. Remote jobs suitable for India (secondary tier)
+        3. Global opportunities (fallback tier)
         
         Each job is sent immediately via callback as it's discovered.
         """
@@ -430,71 +344,6 @@ class LinkedInScraper:
             job_type = "internship" if is_internship else "job"
             self.logger.info(f"Starting real-time streaming search for '{keyword}' ({job_type})")
             
-            # First attempt: Try real LinkedIn scraping with streaming
-            success = await self._attempt_linkedin_streaming(
-                keyword, is_internship, max_results, time_filter, 
-                job_callback, all_job_urls, all_found_urls
-            )
-            
-            if not success:
-                self.logger.warning("LinkedIn streaming failed, attempting fallback to non-streaming method...")
-                
-                # Fallback: Use existing non-streaming method with simulated streaming
-                try:
-                    # Use synchronous methods without creating new event loops
-                    if is_internship:
-                        job_urls = self.search_for_jobs_and_internships(keyword, True, max_results, time_filter)
-                    else:
-                        job_urls = self.search_for_jobs_and_internships(keyword, False, max_results, time_filter)
-                    
-                    # Simulate streaming by sending jobs one by one
-                    import random
-                    for job_url in job_urls:
-                        if job_url not in all_found_urls:
-                            all_job_urls.append(job_url)
-                            all_found_urls.add(job_url)
-                            found_count += 1
-                            
-                            if job_callback:
-                                await job_callback(job_url)
-                                await asyncio.sleep(random.uniform(0.5, 1.5))  # Realistic delay
-                    
-                    if len(job_urls) > 0:
-                        self.logger.info(f"Fallback non-streaming method found {len(job_urls)} jobs")
-                        return all_job_urls
-                        
-                except Exception as fallback_error:
-                    self.logger.error(f"Fallback method also failed: {fallback_error}")
-                
-                # Final fallback: Demo/mock data for testing
-                self.logger.warning("All LinkedIn methods failed, using demo data for testing...")
-                demo_jobs = self._get_demo_job_urls(keyword, max_results)
-                
-                for job_url in demo_jobs:
-                    all_job_urls.append(job_url)
-                    found_count += 1
-                    
-                    if job_callback:
-                        await job_callback(job_url)
-                        await asyncio.sleep(1)  # 1 second delay for demo
-                
-                self.logger.info(f"Demo mode: {len(demo_jobs)} sample jobs provided")
-            
-        except Exception as e:
-            self.logger.error(f"Error in streaming search: {e}")
-        
-        return all_job_urls
-
-    async def _attempt_linkedin_streaming(self, keyword: str, is_internship: bool, max_results: int,
-                                        time_filter: str, job_callback: Optional[Callable],
-                                        all_job_urls: List[str], all_found_urls: Set[str]) -> bool:
-        """
-        Attempt real LinkedIn streaming with anti-detection.
-        Returns True if successful, False if blocked/failed.
-        """
-        found_count = 0
-        
-        try:
             # Tier 1: India-specific locations with immediate streaming
             india_locations = [
                 "India",
@@ -527,11 +376,6 @@ class LinkedInScraper:
                     all_found_urls=all_found_urls
                 )
                 
-                # Check if we got blocked (empty results might indicate blocking)
-                if len(location_urls) == 0 and found_count == 0:
-                    # If first location gives no results, likely blocked
-                    return False
-                
                 # Track new unique jobs
                 for job_url in location_urls:
                     if job_url not in all_found_urls:
@@ -543,32 +387,69 @@ class LinkedInScraper:
                 if found_count < max_results:
                     await asyncio.sleep(2)
             
-            # If we found some jobs, consider it a success
-            return found_count > 0
+            # Tier 2: Remote positions if we need more results
+            if found_count < max_results:
+                self.logger.info("Searching for remote positions...")
+                
+                remote_locations = ["Remote", "Work from Home"]
+                
+                for remote_location in remote_locations:
+                    if found_count >= max_results:
+                        break
+                    
+                    remaining_results = max_results - found_count
+                    
+                    remote_urls = await self._search_jobs_by_criteria_streaming(
+                        keyword=keyword,
+                        location=remote_location,
+                        is_internship=is_internship,
+                        max_results=remaining_results,
+                        time_filter=time_filter,
+                        job_callback=job_callback,
+                        all_found_urls=all_found_urls
+                    )
+                    
+                    # Track new unique jobs
+                    for job_url in remote_urls:
+                        if job_url not in all_found_urls:
+                            all_job_urls.append(job_url)
+                            all_found_urls.add(job_url)
+                            found_count += 1
+                    
+                    await asyncio.sleep(2)
+            
+            # Tier 3: Global search without location filter (fallback)
+            if found_count < max_results:
+                self.logger.info("Performing global search as fallback...")
+                
+                remaining_results = max_results - found_count
+                
+                global_urls = await self._search_jobs_by_criteria_streaming(
+                    keyword=keyword,
+                    location="",  # No location filter
+                    is_internship=is_internship,
+                    max_results=remaining_results,
+                    time_filter=time_filter,
+                    job_callback=job_callback,
+                    all_found_urls=all_found_urls
+                )
+                
+                # Track new unique jobs
+                for job_url in global_urls:
+                    if job_url not in all_found_urls:
+                        all_job_urls.append(job_url)
+                        all_found_urls.add(job_url)
+                        found_count += 1
+            
+            self.logger.info(f"Streaming search completed: {found_count} {job_type}s found for '{keyword}'")
             
         except Exception as e:
-            self.logger.error(f"LinkedIn streaming attempt failed: {e}")
-            return False
-
-    def _get_demo_job_urls(self, keyword: str, max_results: int) -> List[str]:
-        """
-        Generate demo job URLs for testing when LinkedIn is unavailable.
-        """
-        base_urls = [
-            "https://www.linkedin.com/jobs/view/4099776472",
-            "https://www.linkedin.com/jobs/view/4099776473", 
-            "https://www.linkedin.com/jobs/view/4099776474",
-            "https://www.linkedin.com/jobs/view/4099776475",
-            "https://www.linkedin.com/jobs/view/4099776476",
-            "https://www.linkedin.com/jobs/view/4099776477",
-            "https://www.linkedin.com/jobs/view/4099776478",
-            "https://www.linkedin.com/jobs/view/4099776479",
-            "https://www.linkedin.com/jobs/view/4099776480",
-            "https://www.linkedin.com/jobs/view/4099776481"
-        ]
+            self.logger.error(f"Error in streaming search: {e}")
+        finally:
+            # Clean up resources
+            self._close_driver()
         
-        # Return up to max_results URLs
-        return base_urls[:max_results]
+        return all_job_urls
 
     # Non-streaming methods (legacy support)
     def search_jobs(self, keyword: str, max_results: int = 10, time_filter: str = "r86400") -> List[str]:
@@ -583,17 +464,24 @@ class LinkedInScraper:
                                       max_results: int = 10, time_filter: str = "r86400") -> List[str]:
         """
         Legacy non-streaming search method for backward compatibility.
-        This is a simple fallback that returns demo data when LinkedIn blocks us.
         """
         try:
-            self.logger.info(f"Legacy search method called for '{keyword}' ({'internship' if is_internship else 'job'})")
+            # Run the async streaming method synchronously (without callback)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             
-            # For now, return demo data since LinkedIn consistently blocks automated access
-            # In production, you could implement a different scraping strategy here
-            demo_jobs = self._get_demo_job_urls(keyword, max_results)
+            result = loop.run_until_complete(
+                self._streaming_search(
+                    keyword=keyword,
+                    is_internship=is_internship,
+                    max_results=max_results,
+                    time_filter=time_filter,
+                    job_callback=None  # No streaming callback
+                )
+            )
             
-            self.logger.info(f"Legacy search returning {len(demo_jobs)} demo jobs")
-            return demo_jobs
+            loop.close()
+            return result
             
         except Exception as e:
             self.logger.error(f"Error in legacy search: {e}")
