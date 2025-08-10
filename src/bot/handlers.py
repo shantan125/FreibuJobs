@@ -234,19 +234,27 @@ class ConversationHandlers:
             try:
                 # Choose the appropriate search method based on job type
                 if job_type == JobType.JOB:
-                    job_urls = await scraper.search_jobs_streaming(
+                    # Use non-streaming method but simulate streaming
+                    job_urls = scraper.search_jobs(
                         keyword=search_query, 
                         max_results=max_results,
-                        time_filter=self.config.search_config.time_filter,
-                        job_callback=job_found_callback
+                        time_filter=self.config.search_config.time_filter
                     )
                 else:  # INTERNSHIP
-                    job_urls = await scraper.search_internships_streaming(
+                    # Use non-streaming method but simulate streaming
+                    job_urls = scraper.search_internships(
                         keyword=search_query, 
                         max_results=max_results,
-                        time_filter=self.config.search_config.time_filter,
-                        job_callback=job_found_callback
+                        time_filter=self.config.search_config.time_filter
                     )
+                
+                # Simulate streaming by sending jobs one by one with delays
+                import asyncio
+                for i, job_url in enumerate(job_urls, 1):
+                    await job_found_callback(job_url)
+                    # Add small delay between jobs to simulate real-time discovery
+                    if i < len(job_urls):  # Don't delay after the last job
+                        await asyncio.sleep(2)  # 2 second delay between jobs
                 
                 # Step 4: Send completion message
                 if found_count > 0:

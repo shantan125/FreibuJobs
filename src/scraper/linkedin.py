@@ -18,7 +18,7 @@ from selenium.common.exceptions import TimeoutException, WebDriverException
 from webdriver_manager.chrome import ChromeDriverManager
 
 from ..utils.config import ConfigurationManager
-from ..utils.logging import get_bot_logger,    async def search_jobs_streaming(self, keyword: str, max_results: int = 10, 
+from ..utils.logging import get_bot_logger, log_function, time_function 
                                    time_filter: str = "r86400", job_callback=None) -> List[str]:
         """Search for jobs with real-time streaming - sends each job immediately when found."""
         return await self._streaming_search(
