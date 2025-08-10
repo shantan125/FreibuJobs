@@ -1,15 +1,10 @@
 # 🧪 Comprehensive Testing Pipeline
 
-name: 🧪 Tests & Quality Assurance
+name: 🧪 Tests & Quality Assurance (manual only)
 
 on:
-  push:
-    branches: [main, develop, feature/*]
-  pull_request:
-    branches: [main, develop]
-  schedule:
-    # Run tests daily at 6 AM UTC
-    - cron: "0 6 * * *"
+  # Disable automatic triggers; run manually when needed
+  workflow_dispatch:
 
 env:
   PYTHON_VERSION: "3.11"
