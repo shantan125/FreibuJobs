@@ -36,13 +36,25 @@ jobs:
         run: |
           echo "🚀 Starting deployment..."
 
-          # Build and deploy directly using Container Apps
-          az containerapp up \
+          # Build and push image first
+          az acr build --registry linkedinbotacr --image linkedin-bot:${{ github.sha }} .
+
+          # Deploy to container app
+          az containerapp update \
+            --name ${{ env.AZURE_CONTAINER_APP }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --image linkedinbotacr.azurecr.io/linkedin-bot:${{ github.sha }} \
+            --set-env-vars \
+              TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
+              AZURE_ENVIRONMENT=production \
+              LOG_LEVEL=INFO \
+              MAX_RESULTS_PER_SEARCH=10 \
+              DEFAULT_LOCATION="India" || \
+          az containerapp create \
             --name ${{ env.AZURE_CONTAINER_APP }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --environment ${{ env.AZURE_CONTAINER_ENV }} \
-            --image ${{ env.AZURE_REGISTRY }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} \
-            --source . \
+            --image linkedinbotacr.azurecr.io/linkedin-bot:${{ github.sha }} \
             --target-port 8080 \
             --ingress external \
             --min-replicas 1 \
