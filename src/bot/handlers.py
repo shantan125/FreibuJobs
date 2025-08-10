@@ -219,12 +219,20 @@ class ConversationHandlers:
                 
                 self.logger.info(f"🚀 STREAMING JOB CALLBACK #{found_count}: {job_url}")
                 
-                # Send job immediately using the enhanced message format
-                job_message = MessageTemplates.format_single_job_message(
-                    job_url=job_url,
-                    role=role,
-                    job_number=found_count
-                )
+                # Send job immediately; prefer async details extraction for rich content
+                try:
+                    from .messages import MessageFormatter
+                    job_message = await MessageFormatter.format_single_job_message_async(
+                        job_url=job_url,
+                        role=role,
+                        job_number=found_count
+                    )
+                except Exception:
+                    job_message = MessageTemplates.format_single_job_message(
+                        job_url=job_url,
+                        role=role,
+                        job_number=found_count
+                    )
                 
                 await update.message.reply_text(
                     job_message,

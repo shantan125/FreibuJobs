@@ -111,6 +111,18 @@ class TestMessageFormatter(unittest.TestCase):
             LocationType.GLOBAL
         )
 
+    def test_extract_job_details_contract(self):
+        """extractJobDetails should return a dict with company/title/location keys."""
+        import asyncio
+        url = "https://www.linkedin.com/jobs/view/123456"
+        details = asyncio.get_event_loop().run_until_complete(
+            MessageFormatter.extractJobDetails(url)
+        )
+        self.assertIn("company", details)
+        self.assertIn("title", details)
+        self.assertIn("location", details)
+        self.assertIsInstance(details["company"], str)
+
 
 class TestLinkedInScraperMethods(unittest.TestCase):
     """Test LinkedIn scraper methods (without actual web requests)."""

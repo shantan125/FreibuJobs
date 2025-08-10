@@ -3,9 +3,16 @@ Message Templates Module
 Professional message templates for the LinkedIn Job & Internship Bot.
 Provides consistent, well-formatted messages with internationalization support.
 """
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
+import re
+import asyncio
+
+try:
+    import aiohttp
+except Exception:
+    aiohttp = None  # Fallback if not available; callers will use heuristics
 class JobType(Enum):
     """Job type enumeration."""
     JOB = "job"
@@ -79,7 +86,7 @@ class MessageTemplates:
         This is sent immediately when a job is found.
         """
         try:
-            # Extract company and job details from URL
+            # Extract company and job details (heuristics only; see async method for richer extraction)
             company_name = MessageFormatter._extract_company_from_url(job_url)
             job_title = MessageFormatter._extract_job_title_from_url(job_url) or role
             location = MessageFormatter._extract_location_from_url(job_url)
@@ -104,6 +111,30 @@ class MessageTemplates:
                 f"🔗 **Apply Now**: [View Job Details]({job_url})\n\n"
                 f"⏳ _Searching for more opportunities..._"
             )
+
+    @staticmethod
+    async def format_single_job_message_async(job_url: str, role: str, job_number: int) -> str:
+        """Async variant that uses extractJobDetails() for better company/location/title.
+
+        This tries network-light parsing first and falls back to heuristics.
+        """
+        try:
+            details = await MessageFormatter.extractJobDetails(job_url)
+            company_name = details.get("company") or MessageFormatter._extract_company_from_url(job_url)
+            job_title = details.get("title") or MessageFormatter._extract_job_title_from_url(job_url) or role
+            location = details.get("location") or MessageFormatter._extract_location_from_url(job_url)
+
+            message = (
+                f"🔍 **Job {job_number} Found!**\n\n"
+                f"🏢 **Company**: {company_name}\n"
+                f"💼 **Role**: {job_title}\n"
+                f"📍 **Location**: {location}\n"
+                f"🔗 **Apply Now**: [View Job Details]({job_url})\n\n"
+                f"⏳ _Searching for more opportunities..._"
+            )
+            return message
+        except Exception:
+            return MessageTemplates.format_single_job_message(job_url, role, job_number)
     
     @staticmethod
     def search_progress_message(role: str, job_type: JobType, location: str, max_results: int) -> str:
@@ -180,10 +211,85 @@ class MessageFormatter:
     """Enhanced message formatter with job detail extraction."""
     
     @staticmethod
+    async def extractJobDetails(job_url: str) -> Dict[str, str]:
+        """Extract job details (company, title, location) from a LinkedIn job URL.
+
+        Strategy:
+        1) Try to fetch the page HTML quickly (<=1.5s) using aiohttp and parse common JSON/meta patterns.
+        2) Fallback to heuristic extraction from the URL when blocked or on errors.
+
+        Returns a dict with keys: company, title, location.
+        """
+        # Defaults
+        details = {"company": "LinkedIn Company", "title": None, "location": "Location TBD"}
+
+        # Fast bail-out if aiohttp unavailable
+        if aiohttp is None:
+            details["title"] = MessageFormatter._extract_job_title_from_url(job_url)
+            details["location"] = MessageFormatter._extract_location_from_url(job_url)
+            return details
+
+        # Quick HTTP fetch with tight timeouts
+        try:
+            timeout = aiohttp.ClientTimeout(total=1.8, connect=0.6)
+            headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                )
+            }
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+                async with session.get(job_url, allow_redirects=True) as resp:
+                    if resp.status >= 200 and resp.status < 400:
+                        html = await resp.text(errors="ignore")
+
+                        # Common JSON patterns in LinkedIn job pages
+                        # 1) "companyName":"..."
+                        m = re.search(r'"companyName"\s*:\s*"([^"]+)"', html)
+                        if m:
+                            details["company"] = m.group(1)
+
+                        # 2) "formattedLocation":"..." or jobLocation object
+                        m = re.search(r'"formattedLocation"\s*:\s*"([^"]+)"', html)
+                        if m:
+                            details["location"] = m.group(1)
+                        else:
+                            m_city = re.search(r'"addressLocality"\s*:\s*"([^"]+)"', html)
+                            m_region = re.search(r'"addressRegion"\s*:\s*"([^"]+)"', html)
+                            if m_city and m_region:
+                                details["location"] = f"{m_city.group(1)}, {m_region.group(1)}"
+
+                        # 3) Job title from meta or JSON
+                        m = re.search(r'"jobTitle"\s*:\s*"([^"]+)"', html)
+                        if m:
+                            details["title"] = m.group(1)
+                        else:
+                            m2 = re.search(r'<meta\s+property=["\']og:title["\']\s+content=["\']([^"\']+)["\']', html, re.IGNORECASE)
+                            if m2:
+                                details["title"] = m2.group(1)
+
+                        # Normalize
+                        if details["company"]:
+                            details["company"] = details["company"].strip()
+                        if details["title"]:
+                            details["title"] = details["title"].strip()
+                        if details["location"]:
+                            details["location"] = details["location"].strip()
+
+                        return details
+        except Exception:
+            # Network blocked or timed out; fall back to heuristics
+            pass
+
+        # Heuristics fallback
+        details["title"] = MessageFormatter._extract_job_title_from_url(job_url)
+        details["location"] = MessageFormatter._extract_location_from_url(job_url)
+        return details
+
+    @staticmethod
     def _extract_company_from_url(job_url: str) -> str:
         """Extract company name from LinkedIn job URL."""
         try:
-            import re
             # LinkedIn job URLs often contain company info
             # Try to extract from URL patterns
             if "linkedin.com" in job_url:
