@@ -16,7 +16,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from ..utils.config import ConfigurationManager
 from ..utils.logging import get_bot_logger, log_function, time_function
 from ..scraper.linkedin import LinkedInScraper
-from .handlers import ConversationHandlers, ConversationStateManager
+from .handlers import ConversationHandlers
 from .messages import MessageTemplates, MessageFormatter, JobOpportunity, JobType
 from ..health.health_check import HealthCheckServer
 
@@ -35,7 +35,6 @@ class LinkedInJobBot:
         self.logger.info("Initializing bot components...")
         self.scraper = LinkedInScraper(config_manager)
         self.conversation_handlers = ConversationHandlers(config_manager)
-        self.state_manager = ConversationStateManager()
         
         # Initialize application
         self.application: Optional[Application] = None
@@ -58,9 +57,7 @@ class LinkedInJobBot:
             ).build()
             
             # Add conversation handler
-            conversation_handler = self.state_manager.get_conversation_handler(
-                self.conversation_handlers
-            )
+            conversation_handler = self.conversation_handlers.create_conversation_handler()
             self.application.add_handler(conversation_handler)
             
             # Add standalone command handlers

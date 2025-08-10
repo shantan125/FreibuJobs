@@ -523,10 +523,275 @@ class LinkedInScraper:
             self.logger.error(f"LinkedIn login failed: {e}")
             return False
     
+    async def search_for_jobs_and_internships_streaming(self, keyword: str, is_internship: bool = False,
+                                      max_results: int = 10, time_filter: str = "r86400", 
+                                      job_callback=None) -> List[str]:
+        """
+        Search for jobs and internships with real-time streaming.
+        Calls job_callback immediately when each job is found.
+        
+        Strategy:
+        1. India-focused search (specific cities)
+        2. Remote jobs suitable for India
+        3. Global opportunities as fallback
+        """
+        all_job_urls: Set[str] = set()
+        
+        try:
+            self.logger.info(f"Starting streaming search for '{keyword}' "
+                           f"({'internship' if is_internship else 'job'})")
+            
+            # Tier 1: India-specific locations
+            india_locations = [
+                "India",
+                "Bangalore, India", 
+                "Mumbai, India",
+                "Delhi, India",
+                "Hyderabad, India",
+                "Pune, India"
+            ]
+            
+            for location in india_locations:
+                if len(all_job_urls) >= max_results:
+                    break
+                
+                urls = await self._search_jobs_by_criteria_streaming(
+                    keyword=keyword,
+                    location=location,
+                    is_internship=is_internship,
+                    max_results=max_results // 2,  # Get some from each source
+                    time_filter=time_filter,
+                    job_callback=job_callback,
+                    all_found_urls=all_job_urls
+                )
+                
+                all_job_urls.update(urls)
+                time.sleep(2)  # Rate limiting
+            
+            # Tier 2: Remote positions (if we need more results)
+            if len(all_job_urls) < max_results:
+                remote_urls = await self._search_jobs_by_criteria_streaming(
+                    keyword=keyword,
+                    work_type="2",  # Remote work type
+                    is_internship=is_internship,
+                    max_results=max_results // 3,
+                    time_filter=time_filter,
+                    job_callback=job_callback,
+                    all_found_urls=all_job_urls
+                )
+                
+                all_job_urls.update(remote_urls)
+                time.sleep(2)
+            
+            # Tier 3: Global search as fallback (if still need more)
+            if len(all_job_urls) < max_results:
+                global_urls = await self._search_jobs_by_criteria_streaming(
+                    keyword=keyword,
+                    is_internship=is_internship,
+                    max_results=max_results // 4,
+                    time_filter=time_filter,
+                    job_callback=job_callback,
+                    all_found_urls=all_job_urls
+                )
+                
+                all_job_urls.update(global_urls)
+            
+            # Convert to list and limit results
+            final_urls = list(all_job_urls)[:max_results]
+            
+            self.logger.info(f"Streaming search completed: {len(final_urls)} total URLs for '{keyword}'")
+            
+            return final_urls
+            
+        except Exception as e:
+            self.logger.error(f"Error in streaming search: {e}")
+            return []
+        
+        finally:
+            # Always close driver after search
+            self._close_driver()
+
+    async def search_jobs_streaming(self, keyword: str, max_results: int = 10, 
+                                  time_filter: str = "r86400", job_callback=None) -> List[str]:
+        """Search for full-time jobs with streaming updates."""
+        return await self.search_for_jobs_and_internships_streaming(
+            keyword=keyword,
+            is_internship=False,
+            max_results=max_results,
+            time_filter=time_filter,
+            job_callback=job_callback
+        )
+    
+    async def search_internships_streaming(self, keyword: str, max_results: int = 10, 
+                                         time_filter: str = "r86400", job_callback=None) -> List[str]:
+        """Search for internships with streaming updates."""
+        return await self.search_for_jobs_and_internships_streaming(
+            keyword=keyword,
+            is_internship=True,
+            max_results=max_results,
+            time_filter=time_filter,
+            job_callback=job_callback
+        )
+
+    async def _search_jobs_by_criteria_streaming(self, keyword: str, location: str = "", 
+                               work_type: str = "", is_internship: bool = False,
+                               max_results: int = 10, time_filter: str = "r86400",
+                               job_callback=None, all_found_urls=None) -> List[str]:
+        """Search jobs by specific criteria with streaming updates."""
+        job_urls = []
+        driver = None
+        
+        try:
+            self.logger.info(f"Starting streaming search for: {keyword}, location: {location}, type: {'internship' if is_internship else 'job'}")
+            driver = self._get_driver()
+            self.logger.info("WebDriver initialized successfully")
+            
+            # Build search URL (no login required for job search)
+            search_url = self._build_search_url(
+                keyword=keyword,
+                location=location,
+                work_type=work_type,
+                is_internship=is_internship,
+                time_filter=time_filter
+            )
+            
+            self.logger.info(f"Built search URL: {search_url}")
+            
+            # Navigate to search page
+            self.logger.info("Navigating to LinkedIn search page...")
+            driver.get(search_url)
+            self.logger.info(f"Successfully navigated to: {driver.current_url}")
+            time.sleep(5)  # Allow page to load
+            
+            # Log page title for debugging
+            page_title = driver.title
+            self.logger.info(f"Page title: {page_title}")
+            
+            # Check if we're on the right page or redirected
+            if "jobs" not in driver.current_url.lower() and "jobs" not in page_title.lower():
+                self.logger.warning(f"Possible redirect detected. Current URL: {driver.current_url}, Title: {page_title}")
+            
+            # Extract jobs from multiple pages if needed with streaming
+            pages_checked = 0
+            max_pages = 3  # Limit to first 3 pages
+            
+            while len(job_urls) < max_results and pages_checked < max_pages:
+                self.logger.info(f"Extracting jobs from page {pages_checked + 1}")
+                
+                # Extract URLs from current page with streaming callback
+                page_urls = await self._extract_job_urls_streaming(driver, job_callback, all_found_urls)
+                self.logger.info(f"Extracted {len(page_urls)} job entries from page {pages_checked + 1}")
+                
+                # Add new URLs
+                for url in page_urls:
+                    if url not in job_urls:
+                        job_urls.append(url)
+                        if len(job_urls) >= max_results:
+                            break
+                
+                pages_checked += 1
+                
+                # Try to go to next page if we need more results
+                if len(job_urls) < max_results and pages_checked < max_pages:
+                    try:
+                        next_button = driver.find_element(
+                            By.CSS_SELECTOR, 
+                            "button[aria-label='View next page']"
+                        )
+                        if next_button.is_enabled():
+                            self.logger.info(f"Going to page {pages_checked + 1}")
+                            driver.execute_script("arguments[0].click();", next_button)
+                            time.sleep(3)
+                        else:
+                            self.logger.info("Next button disabled, no more pages")
+                            break
+                    except Exception:
+                        self.logger.info("No next page button found or failed to click")
+                        break  # No more pages
+            
+            search_type = f"{location} {work_type}".strip()
+            if is_internship:
+                search_type += " internships"
+            else:
+                search_type += " jobs"
+            
+            self.logger.info(f"Streaming search completed: Found {len(job_urls)} {search_type} for '{keyword}'")
+            
+            return job_urls
+            
+        except Exception as e:
+            self.logger.error(f"Error searching LinkedIn: {e}")
+            return []
+        finally:
+            if driver:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+
+    async def _extract_job_urls_streaming(self, driver, job_callback=None, all_found_urls=None) -> List[str]:
+        """Extract job URLs from the current page with streaming callbacks."""
+        job_urls = []
+        
+        try:
+            # Wait for job listings to load
+            job_containers = driver.find_elements(
+                By.CSS_SELECTOR, 
+                "div[data-entity-urn*='jobPosting']"
+            )
+            
+            if not job_containers:
+                # Fallback selector
+                job_containers = driver.find_elements(
+                    By.CSS_SELECTOR, 
+                    ".job-search-card, .jobs-search__results-list li"
+                )
+            
+            self.logger.info(f"Found {len(job_containers)} job containers")
+            
+            for container in job_containers:
+                try:
+                    # Try multiple methods to extract job URL
+                    job_url = None
+                    
+                    # Method 1: Look for job title link
+                    job_link = container.find_element(
+                        By.CSS_SELECTOR, 
+                        "h3 a, .job-card-list__title a, .job-search-card__title a"
+                    )
+                    if job_link:
+                        job_url = job_link.get_attribute('href')
+                    
+                    if job_url and 'linkedin.com/jobs/view' in job_url:
+                        # Clean URL
+                        clean_url = job_url.split('?')[0]
+                        
+                        # Check if we already found this URL
+                        if all_found_urls is None or clean_url not in all_found_urls:
+                            job_urls.append(clean_url)
+                            
+                            # Add to global set if provided
+                            if all_found_urls is not None:
+                                all_found_urls.add(clean_url)
+                            
+                            # Call streaming callback immediately
+                            if job_callback:
+                                await job_callback(clean_url)
+                        
+                except Exception as e:
+                    self.logger.debug(f"Error extracting URL from job container: {e}")
+                    continue
+            
+            return job_urls
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting job URLs: {e}")
+            return []
+    
     def search_for_jobs_and_internships(self, keyword: str, is_internship: bool = False,
                                       max_results: int = 10, time_filter: str = "r86400") -> List[str]:
         """
-        Search for jobs and internships with multi-tier strategy.
+        Search for jobs and internships with multi-tier strategy (non-streaming version).
         
         Strategy:
         1. India-focused search (specific cities)

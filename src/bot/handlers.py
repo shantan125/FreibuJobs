@@ -2,7 +2,7 @@
 Conversation Handlers Module
 
 Professional conversation management for the LinkedIn Job & Internship Bot.
-Handles user interactions, state management, and conversation flow.
+Handles user interactions, state management, and conversation flow with real-time streaming.
 """
 
 import logging
@@ -53,13 +53,14 @@ class ConversationData:
 
 
 class ConversationHandlers:
-    """Professional conversation handlers for the bot."""
-    
-    def __init__(self, config_manager: ConfigurationManager):
-        self.config = config_manager
+    """Professional conversation handlers for the LinkedIn bot."""
+
+    def __init__(self, config: ConfigurationManager):
+        """Initialize conversation handlers."""
+        self.config = config
         self.logger = logging.getLogger(__name__)
         self.conversation_data = ConversationData()
-    
+
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle /start command."""
         try:
@@ -69,16 +70,13 @@ class ConversationHandlers:
             # Clear any existing conversation data
             self.conversation_data.clear_user_data(user_id)
             
-            # Create keyboard with job type options
+            # Create job type selection keyboard
             keyboard = [
-                [
-                    InlineKeyboardButton("Full-Time Job", callback_data="job"),
-                    InlineKeyboardButton("Internship", callback_data="internship")
-                ]
+                [InlineKeyboardButton("Full-time Job", callback_data="job_full_time")],
+                [InlineKeyboardButton("Internship", callback_data="job_internship")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Send welcome message
             welcome_msg = MessageTemplates.welcome_message(user.first_name or "there")
             
             await update.message.reply_text(
@@ -87,14 +85,15 @@ class ConversationHandlers:
                 parse_mode='Markdown'
             )
             
-            self.logger.info(f"User {user_id} started conversation")
+            self.logger.info(f"Started conversation with user {user_id} ({user.username or 'no username'})")
+            
             return ConversationState.SELECTING_JOB_TYPE.value
             
         except Exception as e:
             self.logger.error(f"Error in start_command: {e}")
             await update.message.reply_text(MessageTemplates.error_message())
             return ConversationHandler.END
-    
+
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /help command."""
         try:
@@ -104,104 +103,92 @@ class ConversationHandlers:
             )
             
             await update.message.reply_text(help_msg, parse_mode='Markdown')
-            self.logger.info(f"Help command executed for user {update.effective_user.id}")
+            
+            self.logger.info(f"Sent help message to user {update.effective_user.id}")
             
         except Exception as e:
             self.logger.error(f"Error in help_command: {e}")
             await update.message.reply_text(MessageTemplates.error_message())
-    
-    async def handle_job_type_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle job type selection callback."""
+
+    async def job_type_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle job type selection."""
         try:
             query = update.callback_query
             await query.answer()
             
-            user_id = query.from_user.id
-            job_type_str = query.data
+            user_id = update.effective_user.id
             
-            # Validate and convert job type
-            if job_type_str not in ["job", "internship"]:
-                await query.edit_message_text(MessageTemplates.invalid_state_message())
+            # Parse job type
+            if query.data == "job_full_time":
+                job_type = JobType.JOB
+            elif query.data == "job_internship":
+                job_type = JobType.INTERNSHIP
+            else:
+                await query.edit_message_text("Invalid selection. Please use /start to try again.")
                 return ConversationHandler.END
             
-            job_type = JobType.JOB if job_type_str == "job" else JobType.INTERNSHIP
-            
-            # Store job type in conversation data
+            # Store job type
             self.conversation_data.set_user_data(user_id, "job_type", job_type)
             
-            # Send role input prompt
-            prompt_msg = MessageTemplates.job_type_prompt(job_type)
-            
-            await query.edit_message_text(prompt_msg, parse_mode='Markdown')
+            # Send role prompt
+            role_prompt = MessageTemplates.job_type_prompt(job_type)
+            await query.edit_message_text(role_prompt, parse_mode='Markdown')
             
             self.logger.info(f"User {user_id} selected job type: {job_type.value}")
+            
             return ConversationState.ENTERING_ROLE.value
             
         except Exception as e:
-            self.logger.error(f"Error in handle_job_type_selection: {e}")
-            await query.edit_message_text(MessageTemplates.error_message())
+            self.logger.error(f"Error in job_type_selection: {e}")
+            await update.callback_query.edit_message_text(MessageTemplates.error_message())
             return ConversationHandler.END
-    
-    async def handle_role_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle role input from user."""
+
+    async def role_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle role input and initiate search."""
         try:
             user_id = update.effective_user.id
             role = update.message.text.strip()
             
-            if not role:
+            # Validate role input
+            if not role or len(role.strip()) < 3:
                 await update.message.reply_text(
-                    "Please enter a valid role name.",
+                    "**Please enter a valid role**\n\n"
+                    "The role name should be at least 3 characters.\n\n"
+                    "**Examples**: Java Developer, Python Developer, Software Engineer",
                     parse_mode='Markdown'
                 )
                 return ConversationState.ENTERING_ROLE.value
             
-            # Get job type from conversation data
+            # Store role
+            self.conversation_data.set_user_data(user_id, "role", role)
+            
+            # Get job type
             job_type = self.conversation_data.get_user_value(user_id, "job_type")
+            
             if not job_type:
                 await update.message.reply_text(MessageTemplates.invalid_state_message())
                 return ConversationHandler.END
             
-            # Store role in conversation data
-            self.conversation_data.set_user_data(user_id, "role", role)
+            self.logger.info(f"User {user_id} entered role: {role} for {job_type.value}")
             
-            # Send search progress message
-            progress_msg = MessageTemplates.search_progress_message(
-                role=role,
-                job_type=job_type,
-                location=self.config.search_config.default_location,
-                max_results=self.config.search_config.max_results
-            )
-            
-            await update.message.reply_text(progress_msg, parse_mode='Markdown')
-            
-            self.logger.info(f"User {user_id} entered role: {role}")
-            
-            # Immediately trigger the search instead of waiting for another message
+            # Start search immediately
             await self.perform_search(update, context, user_id, job_type, role)
             
             return ConversationHandler.END
             
         except Exception as e:
-            self.logger.error(f"Error in handle_role_input: {e}")
+            self.logger.error(f"Error in role_input: {e}")
             await update.message.reply_text(MessageTemplates.error_message())
             return ConversationHandler.END
-    
-    async def send_progress_update(self, update: Update, message: str) -> None:
-        """Send progress update to user."""
-        try:
-            await update.message.reply_text(message, parse_mode='Markdown')
-        except Exception as e:
-            self.logger.error(f"Error sending progress update: {e}")
 
     async def perform_search(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, job_type: JobType, role: str) -> None:
-        """Perform the actual LinkedIn search with progressive updates."""
-        import time  # Import time at the function level to avoid scope issues
-        
+        """Perform the actual LinkedIn search with real-time streaming updates."""
         try:
             # Step 1: Initialize
             await self.send_progress_update(update, 
                 f"**Starting search for {role}**\n\n"
-                          )
+                f"**I'll send you jobs immediately as I find them!**"
+            )
             
             # Import here to avoid circular imports
             from ..scraper.linkedin import LinkedInScraper
@@ -213,201 +200,134 @@ class ConversationHandlers:
             await self.send_progress_update(update,
                 f"**Target Role**: {role}\n"
                 f"**Search Type**: {job_type.value.title()}\n"
-                f"**Primary Location**: {self.config.search_config.default_location}\n"
+                f"**Strategy**: India → Remote → Global\n"
+                f"**Searching LinkedIn now...**"
             )
-            
-            # Progressive time search strategy
-            time_filters = [
-                (self.config.search_config.time_filter, "last 24 hours"),
-                (self.config.search_config.time_filter_fallback_2days, "last 2 days"),
-                (self.config.search_config.time_filter_fallback_7days, "last 7 days")
-            ]
             
             search_query = role
             max_results = self.config.search_config.max_results
-            job_urls = []
+            found_count = 0
             
-            self.logger.info(f"Starting progressive LinkedIn search for user {user_id}: {role} ({job_type.value})")
+            self.logger.info(f"Starting streaming LinkedIn search for user {user_id}: {role} ({job_type.value})")
             
-            # Step 3: Begin search process
-            for i, (time_filter, time_description) in enumerate(time_filters, 1):
-                try:
-                    await self.send_progress_update(update,
-                        f"**Step 3/5**: Searching LinkedIn ({i}/3)\n\n"
-                        f"**Keywords**: {role}\n"
-                    )
-                    
-                    self.logger.info(f"Searching for {role} in {time_description}")
-                    
-                    # Choose the appropriate search method based on job type
-                    if job_type == JobType.JOB:
-                        job_urls = scraper.search_jobs(
-                            keyword=search_query, 
-                            max_results=max_results,
-                            time_filter=time_filter
-                        )
-                    else:  # INTERNSHIP
-                        job_urls = scraper.search_internships(
-                            keyword=search_query, 
-                            max_results=max_results,
-                            time_filter=time_filter
-                        )
-                    
-                    # If we found jobs, break out of the loop
-                    if job_urls:
-                        await self.send_progress_update(update,
-                            f"**Found {len(job_urls)} opportunities!**\n\n"
-                            f"**Time Range**: {time_description}\n"
-                            f"**Processing results...**"
-                        )
-                        self.logger.info(f"Found {len(job_urls)} jobs for {role} in {time_description}")
-                        break
-                    else:
-                        await self.send_progress_update(update,
-                            f"**No results in {time_description}**\n\n"
-                            f"**Expanding search to longer timeframe...**"
-                        )
-                        self.logger.info(f"No jobs found for {role} in {time_description}, trying longer timeframe")
-                        
-                except Exception as search_error:
-                    self.logger.error(f"Error searching with {time_description}: {search_error}")
-                    await self.send_progress_update(update,
-                        f"**Search issue with {time_description}**\n\n"
-                        f"**Trying alternative timeframe...**"
-                    )
-                    continue
-            
-            # Step 4: Process results
-            if job_urls:
-                await self.send_progress_update(update,
-                    f"**Step 4/5**: Processing {len(job_urls)} opportunities\n\n"
-                    f"**Categorizing by location...**\n"
-                    f"� **Formatting results...**"
-                )
+            # Real-time job callback function
+            async def job_found_callback(job_url: str):
+                nonlocal found_count
+                found_count += 1
                 
-                # Convert URLs to JobOpportunity objects
+                # Import here to avoid circular imports
                 from .messages import MessageFormatter
                 
-                opportunities = []
-                for url in job_urls:
-                    try:
-                        opportunity = MessageFormatter.create_job_opportunity(url)
-                        opportunities.append(opportunity)
-                    except Exception as e:
-                        self.logger.error(f"Error processing job URL {url}: {e}")
-                        continue
+                # Create job opportunity immediately when found
+                opportunity = MessageFormatter.create_job_opportunity(job_url, role)
                 
-                # Step 5: Final results
-                await self.send_progress_update(update,
-                    f"**Step 5/5**: Search complete!\n\n"
-                    f"**Found**: {len(opportunities)} {role} opportunities\n"
-                    f"📤 **Sending results...**"
+                # Determine location type for display
+                location_display = ""
+                if opportunity.location_type.value:
+                    location_display = f" ({opportunity.location_type.value})"
+                
+                # Send job immediately to user
+                await update.message.reply_text(
+                    f"**Job {found_count} Found!**\n\n"
+                    f"**Company**: {opportunity.company}\n"
+                    f"**Role**: {opportunity.title or role}\n"
+                    f"**Type**: {opportunity.location_type.name}{location_display}\n"
+                    f"**Apply**: [View Position]({opportunity.url})\n\n"
+                    f"_Continuing search for more opportunities..._",
+                    parse_mode='Markdown',
+                    disable_web_page_preview=True
                 )
                 
-                # Find which time range was successful
-                successful_timeframe = "recent postings"
-                for time_filter, time_description in time_filters:
-                    if job_urls:
-                        successful_timeframe = time_description
-                        break
+                self.logger.info(f"Sent job {found_count} to user {user_id}: {opportunity.company}")
+            
+            # Step 3: Begin streaming search process
+            try:
+                # Choose the appropriate search method based on job type
+                if job_type == JobType.JOB:
+                    job_urls = await scraper.search_jobs_streaming(
+                        keyword=search_query, 
+                        max_results=max_results,
+                        time_filter=self.config.search_config.time_filter,
+                        job_callback=job_found_callback
+                    )
+                else:  # INTERNSHIP
+                    job_urls = await scraper.search_internships_streaming(
+                        keyword=search_query, 
+                        max_results=max_results,
+                        time_filter=self.config.search_config.time_filter,
+                        job_callback=job_found_callback
+                    )
                 
-                results_msg = MessageTemplates.success_message(
-                    role=role,
-                    job_type=job_type,
-                    location=self.config.search_config.default_location,
-                    opportunities=opportunities
+                # Step 4: Send completion message
+                if found_count > 0:
+                    await update.message.reply_text(
+                        f"**Search Complete!**\n\n"
+                        f"**Total Found**: {found_count} {role} opportunities\n"
+                        f"**Search Strategy**: India → Remote → Global\n"
+                        f"**Search Time**: {time.strftime('%H:%M:%S')}\n\n"
+                        f"**Good luck with your applications!**\n"
+                        f"**Use /start to search for different roles**",
+                        parse_mode='Markdown'
+                    )
+                    self.logger.info(f"Completed streaming search for user {user_id}: {found_count} jobs sent")
+                else:
+                    # No results found
+                    no_results_msg = (
+                        f"**No {role} positions found**\n\n"
+                        f"**Comprehensive search completed:**\n"
+                        f"✓ India locations (Bangalore, Mumbai, Delhi, etc.)\n"
+                        f"✓ Remote positions suitable for India\n"
+                        f"✓ Global opportunities\n\n"
+                        f"**Suggestions to improve results:**\n"
+                        f"• Try different keywords:\n"
+                        f"  - 'Software Developer' instead of '{role}'\n"
+                        f"  - 'Backend Developer' or 'Frontend Developer'\n"
+                        f"  - 'Full Stack Developer' for broader results\n"
+                        f"• Try broader terms like 'Software Engineer'\n"
+                        f"• Check back in a few hours - new jobs are posted regularly\n\n"
+                        f"**Try again with different keywords using /start**"
+                    )
+                    
+                    await update.message.reply_text(no_results_msg, parse_mode='Markdown')
+                    self.logger.info(f"No results found for user {user_id}: {role}")
+                        
+            except Exception as search_error:
+                self.logger.error(f"Error in streaming search: {search_error}")
+                await update.message.reply_text(
+                    f"**Search Error**\n\n"
+                    f"**There was an issue while searching for {role}**\n\n"
+                    f"**Please try again with /start**\n"
+                    f"If the problem persists, the service might be temporarily unavailable.",
+                    parse_mode='Markdown'
                 )
-                
-                # Add timeframe and search details
-                enhanced_msg = (
-                    results_msg + 
-                    f"\n\n**Search Range**: {successful_timeframe}\n"
-                    f"🕐 **Search Time**: {time.strftime('%H:%M:%S')}\n"
-                    f"**Keywords Used**: {role}\n"
-                    f"**Locations Searched**: India → Remote → Global"
-                )
-                
-                await update.message.reply_text(enhanced_msg, parse_mode='Markdown')
-                self.logger.info(f"Sent {len(job_urls)} job results to user {user_id} from {successful_timeframe}")
-            else:
-                # No results found even with 7-day search
-                await self.send_progress_update(update,
-                    f"**Step 5/5**: Search complete - No results\n\n"
-                    f"**Searched all timeframes without success**"
-                )
-                
-                no_results_msg = (
-                    f"**No {role} positions found**\n\n"
-                    f"**Comprehensive search completed:**\n"
-                    f"✓ Last 24 hours\n"
-                    f"✓ Last 2 days\n"
-                    f"✓ Last 7 days\n\n"
-                    f"**Locations searched:**\n"
-                    f"✓ {self.config.search_config.default_location}\n"
-                    f"✓ Remote positions\n"
-                    f"✓ Global opportunities\n\n"
-                    f"**Suggestions to improve results:**\n"
-                    f"• Try different keywords:\n"
-                    f"  - 'Software Developer' instead of 'Java Developer'\n"
-                    f"  - 'Backend Developer' instead of 'Java Developer'\n"
-                    f"  - 'Full Stack Developer' for broader results\n"
-                    f"• Try broader terms like 'Software Engineer'\n"
-                    f"• Check back in a few hours - new jobs are posted regularly\n\n"
-                    f"**Try again with different keywords using /start**\n"
-                    f"**Search completed at**: {time.strftime('%H:%M:%S')}"
-                )
-                await update.message.reply_text(no_results_msg, parse_mode='Markdown')
-                self.logger.info(f"No jobs found for user {user_id} query: {search_query} (tried all timeframes)")
                 
         except Exception as e:
-            self.logger.error(f"Error performing search for user {user_id}: {e}")
+            self.logger.error(f"Error in perform_search: {e}")
             await update.message.reply_text(
-                "**Search Error**\n\n"
-                f"Sorry, there was an error performing your search for '{role}'\n\n"
-                f"**What happened:**\n"
-                f"• Technical issue during LinkedIn search\n"
-                f"• This could be temporary\n\n"
-                f"**What you can do:**\n"
-                f"• Wait 1-2 minutes and try again with /start\n"
-                f"• Try different keywords\n"
-                f"• The service will be restored automatically\n\n"
-                f"**Error time**: {time.strftime('%H:%M:%S')}",
+                f"**Oops! Something went wrong**\n\n"
+                "There was a technical issue while searching.\n\n"
+                f"**Please try again with /start**\n"
+                "If the problem persists, the service might be temporarily unavailable.",
                 parse_mode='Markdown'
             )
         finally:
-            # Clean up conversation data
+            # Clear search state
             self.clear_conversation_data(user_id)
     
-    async def handle_search_request(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle the actual search request."""
+    async def send_progress_update(self, update: Update, message: str) -> None:
+        """Send progress update to user."""
         try:
-            user_id = update.effective_user.id
-            
-            # Get conversation data
-            job_type = self.conversation_data.get_user_value(user_id, "job_type")
-            role = self.conversation_data.get_user_value(user_id, "role")
-            
-            if not job_type or not role:
-                await update.message.reply_text(MessageTemplates.invalid_state_message())
-                return ConversationHandler.END
-            
-            # Store context for the search function to use
-            context.user_data.update({
-                'job_type': job_type,
-                'role': role,
-                'user_id': user_id
-            })
-            
-            self.logger.info(f"Initiating search for user {user_id}: {role} ({job_type.value})")
-            
-            # This will be handled by the search_jobs_and_internships function
-            # which is called from the main bot file
-            return ConversationState.SEARCHING.value
-            
+            await update.message.reply_text(message, parse_mode='Markdown')
         except Exception as e:
-            self.logger.error(f"Error in handle_search_request: {e}")
-            await update.message.reply_text(MessageTemplates.error_message())
-            return ConversationHandler.END
+            self.logger.error(f"Error sending progress update: {e}")
+    
+    def clear_conversation_data(self, user_id: int) -> None:
+        """Clear all conversation data for a user."""
+        try:
+            self.conversation_data.clear_user_data(user_id)
+            self.logger.debug(f"Cleared conversation data for user {user_id}")
+        except Exception as e:
+            self.logger.error(f"Error clearing conversation data for user {user_id}: {e}")
     
     async def handle_timeout(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle conversation timeout."""
@@ -439,62 +359,33 @@ class ConversationHandlers:
             user_id = update.effective_user.id
             self.conversation_data.clear_user_data(user_id)
             
-            self.logger.info(f"Fallback triggered for user {user_id}")
             return ConversationHandler.END
             
         except Exception as e:
             self.logger.error(f"Error in handle_fallback: {e}")
             return ConversationHandler.END
-    
-    def get_conversation_data(self, user_id: int) -> Tuple[Optional[JobType], Optional[str]]:
-        """Get conversation data for a user."""
-        job_type = self.conversation_data.get_user_value(user_id, "job_type")
-        role = self.conversation_data.get_user_value(user_id, "role")
-        return job_type, role
-    
-    def clear_conversation_data(self, user_id: int) -> None:
-        """Clear conversation data for a user."""
-        self.conversation_data.clear_user_data(user_id)
 
-
-class ConversationStateManager:
-    """Manages conversation states and transitions."""
-    
-    def __init__(self):
-        self.logger = logging.getLogger(__name__)
-    
-    def get_conversation_handler(self, handlers: ConversationHandlers) -> ConversationHandler:
-        """Create and configure conversation handler."""
-        from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, filters
+    def create_conversation_handler(self) -> ConversationHandler:
+        """Create and return the conversation handler."""
+        from telegram.ext import CommandHandler, MessageHandler, CallbackQueryHandler, filters
         
         return ConversationHandler(
-            entry_points=[CommandHandler("start", handlers.start_command)],
+            entry_points=[CommandHandler("start", self.start_command)],
             states={
                 ConversationState.SELECTING_JOB_TYPE.value: [
-                    CallbackQueryHandler(
-                        handlers.handle_job_type_selection,
-                        pattern="^(job|internship)$"
-                    )
+                    CallbackQueryHandler(self.job_type_selection, pattern="^job_(full_time|internship)$")
                 ],
                 ConversationState.ENTERING_ROLE.value: [
-                    MessageHandler(
-                        filters.TEXT & ~filters.COMMAND,
-                        handlers.handle_role_input
-                    )
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.role_input)
                 ],
                 ConversationState.SEARCHING.value: [
-                    MessageHandler(
-                        filters.TEXT & ~filters.COMMAND,
-                        handlers.handle_search_request
-                    )
+                    # This state is handled programmatically, no user input expected
                 ]
             },
             fallbacks=[
-                CommandHandler("start", handlers.start_command),
-                MessageHandler(filters.ALL, handlers.handle_fallback)
+                CommandHandler("start", self.start_command),
+                MessageHandler(filters.ALL, self.handle_fallback)
             ],
             conversation_timeout=300,  # 5 minutes timeout
-            per_user=True,
-            per_chat=False,
             name="job_search_conversation"
         )
