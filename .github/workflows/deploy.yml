@@ -32,6 +32,24 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Setup Azure Resources
+        run: |
+          echo "🔧 Setting up Azure resources..."
+
+          # Ensure resource group exists
+          az group show --name ${{ env.AZURE_RESOURCE_GROUP }} > /dev/null 2>&1 || \
+          az group create \
+            --name ${{ env.AZURE_RESOURCE_GROUP }} \
+            --location eastus
+
+          # Ensure Container Registry exists
+          az acr show --name ${{ env.AZURE_REGISTRY }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} > /dev/null 2>&1 || \
+          az acr create \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.AZURE_REGISTRY }} \
+            --sku Basic \
+            --admin-enabled true
+
       - name: Build and Deploy to Azure Container Apps
         run: |
           echo "🚀 Starting deployment..."
@@ -39,7 +57,18 @@ jobs:
           # Build and push image first
           az acr build --registry linkedinbotacr --image linkedin-bot:${{ github.sha }} .
 
-          # Deploy to container app
+          # Ensure Container Apps environment exists
+          echo "🔧 Checking Container Apps environment..."
+          az containerapp env show \
+            --name ${{ env.AZURE_CONTAINER_ENV }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} > /dev/null 2>&1 || \
+          az containerapp env create \
+            --name ${{ env.AZURE_CONTAINER_ENV }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --location eastus
+
+          # Deploy to container app (update if exists, create if not)
+          echo "📦 Deploying container app..."
           az containerapp update \
             --name ${{ env.AZURE_CONTAINER_APP }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
