@@ -215,30 +215,20 @@ class ConversationHandlers:
                 nonlocal found_count
                 found_count += 1
                 
-                # Import here to avoid circular imports
-                from .messages import MessageFormatter
+                # Send job immediately using the enhanced message format
+                job_message = MessageTemplates.format_single_job_message(
+                    job_url=job_url,
+                    role=role,
+                    job_number=found_count
+                )
                 
-                # Create job opportunity immediately when found
-                opportunity = MessageFormatter.create_job_opportunity(job_url, role)
-                
-                # Determine location type for display
-                location_display = ""
-                if opportunity.location_type.value:
-                    location_display = f" ({opportunity.location_type.value})"
-                
-                # Send job immediately to user
                 await update.message.reply_text(
-                    f"**Job {found_count} Found!**\n\n"
-                    f"**Company**: {opportunity.company}\n"
-                    f"**Role**: {opportunity.title or role}\n"
-                    f"**Type**: {opportunity.location_type.name}{location_display}\n"
-                    f"**Apply**: [View Position]({opportunity.url})\n\n"
-                    f"_Continuing search for more opportunities..._",
+                    job_message,
                     parse_mode='Markdown',
                     disable_web_page_preview=True
                 )
                 
-                self.logger.info(f"Sent job {found_count} to user {user_id}: {opportunity.company}")
+                self.logger.info(f"Sent job {found_count} to user {user_id}: {job_url}")
             
             # Step 3: Begin streaming search process
             try:

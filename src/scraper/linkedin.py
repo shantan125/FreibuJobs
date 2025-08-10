@@ -18,7 +18,150 @@ from selenium.common.exceptions import TimeoutException, WebDriverException
 from webdriver_manager.chrome import ChromeDriverManager
 
 from ..utils.config import ConfigurationManager
-from ..utils.logging import get_bot_logger, log_function, time_function
+from ..utils.logging import get_bot_logger,    async def search_jobs_streaming(self, keyword: str, max_results: int = 10, 
+                                   time_filter: str = "r86400", job_callback=None) -> List[str]:
+        """Search for jobs with real-time streaming - sends each job immediately when found."""
+        return await self._streaming_search(
+            keyword=keyword,
+            is_internship=False,
+            max_results=max_results,
+            time_filter=time_filter,
+            job_callback=job_callback
+        )
+    
+    async def search_internships_streaming(self, keyword: str, max_results: int = 10, 
+                                         time_filter: str = "r86400", job_callback=None) -> List[str]:
+        """Search for internships with real-time streaming - sends each job immediately when found."""
+        return await self._streaming_search(
+            keyword=keyword,
+            is_internship=True,
+            max_results=max_results,
+            time_filter=time_filter,
+            job_callback=job_callback
+        )
+    
+    async def _streaming_search(self, keyword: str, is_internship: bool, max_results: int,
+                              time_filter: str, job_callback=None) -> List[str]:
+        """
+        Real-time streaming search that sends jobs immediately as they're found.
+        """
+        import asyncio
+        
+        all_job_urls: List[str] = []
+        found_count = 0
+        
+        try:
+            self.logger.info(f"Starting streaming search for '{keyword}' "
+                           f"({'internship' if is_internship else 'job'})")
+            
+            # Tier 1: India-specific locations with immediate streaming
+            india_locations = [
+                "India",
+                "Bangalore, India", 
+                "Mumbai, India",
+                "Delhi, India",
+                "Hyderabad, India",
+                "Pune, India"
+            ]
+            
+            for location in india_locations:
+                if found_count >= max_results:
+                    break
+                
+                self.logger.info(f"Searching in {location}...")
+                
+                # Get jobs for this location
+                location_urls = self._search_jobs_by_criteria(
+                    keyword=keyword,
+                    location=location,
+                    is_internship=is_internship,
+                    max_results=max_results,
+                    time_filter=time_filter
+                )
+                
+                # Stream each job immediately
+                for job_url in location_urls:
+                    if job_url not in all_job_urls and found_count < max_results:
+                        all_job_urls.append(job_url)
+                        found_count += 1
+                        
+                        # Send job immediately via callback
+                        if job_callback:
+                            try:
+                                await job_callback(job_url)
+                                # Small delay to avoid overwhelming the user
+                                await asyncio.sleep(0.5)
+                            except Exception as callback_error:
+                                self.logger.error(f"Error in job callback: {callback_error}")
+                
+                # Rate limiting between locations
+                await asyncio.sleep(1)
+            
+            # Tier 2: Remote positions (if we need more results)
+            if found_count < max_results:
+                self.logger.info("Searching remote positions...")
+                
+                remote_urls = self._search_jobs_by_criteria(
+                    keyword=keyword,
+                    work_type="2",  # Remote work type
+                    is_internship=is_internship,
+                    max_results=max_results,
+                    time_filter=time_filter
+                )
+                
+                # Stream remote jobs immediately
+                for job_url in remote_urls:
+                    if job_url not in all_job_urls and found_count < max_results:
+                        all_job_urls.append(job_url)
+                        found_count += 1
+                        
+                        if job_callback:
+                            try:
+                                await job_callback(job_url)
+                                await asyncio.sleep(0.5)
+                            except Exception as callback_error:
+                                self.logger.error(f"Error in job callback: {callback_error}")
+                
+                await asyncio.sleep(1)
+            
+            # Tier 3: Global search as fallback (if still need more)
+            if found_count < max_results:
+                self.logger.info("Searching global opportunities...")
+                
+                global_urls = self._search_jobs_by_criteria(
+                    keyword=keyword,
+                    is_internship=is_internship,
+                    max_results=max_results,
+                    time_filter=time_filter
+                )
+                
+                # Stream global jobs immediately
+                for job_url in global_urls:
+                    if job_url not in all_job_urls and found_count < max_results:
+                        all_job_urls.append(job_url)
+                        found_count += 1
+                        
+                        if job_callback:
+                            try:
+                                await job_callback(job_url)
+                                await asyncio.sleep(0.5)
+                            except Exception as callback_error:
+                                self.logger.error(f"Error in job callback: {callback_error}")
+            
+            self.logger.info(f"Streaming search completed: {found_count} jobs found and sent for '{keyword}'")
+            
+            return all_job_urls
+            
+        except Exception as e:
+            self.logger.error(f"Error in streaming search: {e}")
+            return all_job_urls
+        
+        finally:
+            # Always close driver after search
+            self._close_driver()
+
+    def search_for_jobs_and_internships(self, keyword: str, is_internship: bool = False, 
+                                      max_results: int = 10, time_filter: str = "r86400") -> List[str]:og_function, time_function
 
 
 class LinkedInScraper:

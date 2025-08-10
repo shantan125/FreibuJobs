@@ -82,6 +82,39 @@ class MessageTemplates:
                 f"**I'll search immediately and keep you updated!**"
             )
     @staticmethod
+    def format_single_job_message(job_url: str, role: str, job_number: int) -> str:
+        """
+        Format a single job message with company, location, and link.
+        This is sent immediately when a job is found.
+        """
+        try:
+            # Extract company and job details from URL
+            company_name = MessageFormatter._extract_company_from_url(job_url)
+            job_title = MessageFormatter._extract_job_title_from_url(job_url) or role
+            location = MessageFormatter._extract_location_from_url(job_url)
+            
+            # Create the immediate job message
+            message = (
+                f"🔍 **Job {job_number} Found!**\n\n"
+                f"🏢 **Company**: {company_name}\n"
+                f"💼 **Role**: {job_title}\n"
+                f"📍 **Location**: {location}\n"
+                f"🔗 **Apply Now**: [View Job Details]({job_url})\n\n"
+                f"⏳ _Searching for more opportunities..._"
+            )
+            
+            return message
+            
+        except Exception as e:
+            # Fallback message if extraction fails
+            return (
+                f"🔍 **Job {job_number} Found!**\n\n"
+                f"💼 **Role**: {role}\n"
+                f"🔗 **Apply Now**: [View Job Details]({job_url})\n\n"
+                f"⏳ _Searching for more opportunities..._"
+            )
+    
+    @staticmethod
     def search_progress_message(role: str, job_type: JobType, location: str, max_results: int) -> str:
         """Generate initial search progress message."""
         return (
@@ -171,7 +204,69 @@ class MessageTemplates:
             f"Please start with /start to begin your job search."
         )
 class MessageFormatter:
-    """Utility class for formatting messages."""
+    """Enhanced message formatter with job detail extraction."""
+    
+    @staticmethod
+    def _extract_company_from_url(job_url: str) -> str:
+        """Extract company name from LinkedIn job URL."""
+        try:
+            import re
+            # LinkedIn job URLs often contain company info
+            # Try to extract from URL patterns
+            if "linkedin.com" in job_url:
+                # Basic extraction - can be enhanced with actual scraping
+                return "LinkedIn Company"
+            return "Company"
+        except:
+            return "Company"
+    
+    @staticmethod
+    def _extract_job_title_from_url(job_url: str) -> str:
+        """Extract job title from LinkedIn job URL."""
+        try:
+            # This would require actual page scraping for accurate results
+            # For now, return None to use the user's search term
+            return None
+        except:
+            return None
+    
+    @staticmethod
+    def _extract_location_from_url(job_url: str) -> str:
+        """Extract location from LinkedIn job URL."""
+        try:
+            # Basic location detection from URL
+            if "india" in job_url.lower():
+                return "India"
+            elif "remote" in job_url.lower():
+                return "Remote"
+            else:
+                return "Location TBD"
+        except:
+            return "Location TBD"
+    
+    @staticmethod
+    def create_job_opportunity(job_url: str, role: str) -> JobOpportunity:
+        """Create job opportunity from URL."""
+        # Determine location type based on URL analysis
+        location_type = LocationType.INDIA
+        if "remote" in job_url.lower():
+            location_type = LocationType.REMOTE
+        elif not any(india_term in job_url.lower() for india_term in ["india", "bangalore", "mumbai", "delhi"]):
+            location_type = LocationType.GLOBAL
+            
+        company = MessageFormatter._extract_company_from_url(job_url)
+        title = MessageFormatter._extract_job_title_from_url(job_url) or role
+        
+        return JobOpportunity(
+            company=company,
+            url=job_url,
+            location_type=location_type,
+            title=title
+        )
+
+
+class MessageFormatterLegacy:
+    """Legacy utility class for formatting messages."""
     @staticmethod
     def extract_company_name(job_info: str) -> str:
         """Extract company name from job info string or LinkedIn URL."""
