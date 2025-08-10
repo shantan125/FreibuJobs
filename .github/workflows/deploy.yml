@@ -32,6 +32,12 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Install Azure Container Apps Extension
+        run: |
+          echo "🔧 Installing Azure Container Apps extension..."
+          az extension add --name containerapp --upgrade
+          echo "✅ Extension ready"
+
       - name: Check and Create Resource Group
         run: |
           echo "🔧 Checking resource group..."
@@ -99,11 +105,16 @@ jobs:
           echo "🔨 Building Docker image..."
           echo "📝 Commit SHA: ${{ github.sha }}"
 
+          # Authenticate with registry
+          az acr login --name ${{ env.AZURE_REGISTRY }}
+
           IMAGE_TAG="${{ env.AZURE_REGISTRY }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}"
 
+          echo "🏗️ Building image: $IMAGE_TAG"
           az acr build \
             --registry ${{ env.AZURE_REGISTRY }} \
             --image ${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --file Dockerfile \
             .
 
           echo "✅ Image built and pushed: $IMAGE_TAG"
@@ -119,6 +130,12 @@ jobs:
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Azure Container Apps Extension
+        run: |
+          echo "🔧 Installing Azure Container Apps extension..."
+          az extension add --name containerapp --upgrade
+          echo "✅ Extension ready"
 
       - name: Delete Existing Container App
         run: |
@@ -152,6 +169,12 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Install Azure Container Apps Extension
+        run: |
+          echo "🔧 Installing Azure Container Apps extension..."
+          az extension add --name containerapp --upgrade
+          echo "✅ Extension ready"
+
       - name: Create Fresh Container App
         id: deploy
         run: |
@@ -159,11 +182,29 @@ jobs:
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
           echo "🕒 Deployment timestamp: $TIMESTAMP"
 
+          # Get registry credentials
+          REGISTRY_USERNAME=$(az acr credential show --name ${{ env.AZURE_REGISTRY }} --query username --output tsv)
+          REGISTRY_PASSWORD=$(az acr credential show --name ${{ env.AZURE_REGISTRY }} --query passwords[0].value --output tsv)
+
+          echo "🔐 Registry authentication configured"
+
+          # Verify image exists
+          echo "🔍 Verifying image exists..."
+          IMAGE_EXISTS=$(az acr repository show --name ${{ env.AZURE_REGISTRY }} --image ${{ env.IMAGE_NAME }}:${{ github.sha }} --query name --output tsv 2>/dev/null || echo "not-found")
+          if [ "$IMAGE_EXISTS" = "not-found" ]; then
+            echo "❌ Image not found in registry!"
+            exit 1
+          fi
+          echo "✅ Image verified: ${{ needs.build-image.outputs.image-url }}"
+
           az containerapp create \
             --name ${{ env.AZURE_CONTAINER_APP }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --environment ${{ env.AZURE_CONTAINER_ENV }} \
             --image ${{ needs.build-image.outputs.image-url }} \
+            --registry-server ${{ env.AZURE_REGISTRY }}.azurecr.io \
+            --registry-username $REGISTRY_USERNAME \
+            --registry-password $REGISTRY_PASSWORD \
             --target-port 8080 \
             --ingress external \
             --min-replicas 1 \
@@ -210,6 +251,12 @@ jobs:
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Azure Container Apps Extension
+        run: |
+          echo "🔧 Installing Azure Container Apps extension..."
+          az extension add --name containerapp --upgrade
+          echo "✅ Extension ready"
 
       - name: Wait for Container Startup
         run: |
