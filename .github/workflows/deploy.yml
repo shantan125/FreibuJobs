@@ -143,12 +143,18 @@ jobs:
             --max-replicas 1 \
             --cpu 0.25 \
             --memory 0.5Gi \
-            --revision-mode single \
             --secrets telegram-bot-token="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
             --env-vars \
               MAX_RESULTS_PER_SEARCH=10 \
               DEFAULT_LOCATION="India" \
               TELEGRAM_BOT_TOKEN=secretref:telegram-bot-token
+
+      - name: 🔁 Set single revision mode
+        run: |
+          az containerapp update \
+            --name ${{ env.CONTAINER_APP }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --set configuration.activeRevisionsMode=Single
 
       - name: ✅ Check Status
         run: |
