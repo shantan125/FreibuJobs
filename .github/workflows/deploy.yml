@@ -67,8 +67,21 @@ jobs:
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --location eastus
 
+          # Force stop any existing instances to ensure clean deployment
+          echo "🛑 Stopping existing container instances..."
+          az containerapp update \
+            --name ${{ env.AZURE_CONTAINER_APP }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --min-replicas 0 \
+            --max-replicas 0 || echo "No existing app to stop"
+
+          sleep 30  # Wait for containers to stop
+
           # Deploy to container app (update if exists, create if not)
           echo "📦 Deploying container app..."
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          echo "🕒 Deployment timestamp: $TIMESTAMP"
+
           az containerapp update \
             --name ${{ env.AZURE_CONTAINER_APP }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
@@ -78,7 +91,8 @@ jobs:
               AZURE_ENVIRONMENT=production \
               LOG_LEVEL=INFO \
               MAX_RESULTS_PER_SEARCH=10 \
-              DEFAULT_LOCATION="India" || \
+              DEFAULT_LOCATION="India" \
+              DEPLOYMENT_ID="streaming-fix-$TIMESTAMP" || \
           az containerapp create \
             --name ${{ env.AZURE_CONTAINER_APP }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
@@ -95,7 +109,8 @@ jobs:
               AZURE_ENVIRONMENT=production \
               LOG_LEVEL=INFO \
               MAX_RESULTS_PER_SEARCH=10 \
-              DEFAULT_LOCATION="India"
+              DEFAULT_LOCATION="India" \
+              DEPLOYMENT_ID="streaming-fix-$TIMESTAMP"
 
       - name: Health Check
         run: |

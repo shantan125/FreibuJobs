@@ -184,6 +184,8 @@ class ConversationHandlers:
     async def perform_search(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, job_type: JobType, role: str) -> None:
         """Perform the actual LinkedIn search with real-time streaming updates."""
         try:
+            self.logger.info(f"🔍 PERFORM_SEARCH CALLED - User: {user_id}, Type: {job_type.value}, Role: {role}")
+            
             # Step 1: Initialize
             await self.send_progress_update(update, 
                 f"**Starting search for {role}**\n\n"
@@ -215,6 +217,8 @@ class ConversationHandlers:
                 nonlocal found_count
                 found_count += 1
                 
+                self.logger.info(f"🚀 STREAMING JOB CALLBACK #{found_count}: {job_url}")
+                
                 # Send job immediately using the enhanced message format
                 job_message = MessageTemplates.format_single_job_message(
                     job_url=job_url,
@@ -228,12 +232,15 @@ class ConversationHandlers:
                     disable_web_page_preview=True
                 )
                 
-                self.logger.info(f"Sent job {found_count} to user {user_id}: {job_url}")
+                self.logger.info(f"✅ SENT STREAMING JOB {found_count} to user {user_id}")
             
             # Step 3: Begin TRUE real-time streaming search
             try:
+                self.logger.info(f"🎯 STARTING STREAMING SEARCH - Type: {job_type.value}")
+                
                 # Choose the appropriate search method based on job type
                 if job_type == JobType.JOB:
+                    self.logger.info("📋 Using search_jobs_streaming method")
                     # Use TRUE streaming method - jobs sent immediately as found
                     job_urls = await scraper.search_jobs_streaming(
                         keyword=search_query, 
@@ -242,6 +249,7 @@ class ConversationHandlers:
                         job_callback=job_found_callback  # Real-time streaming callback
                     )
                 else:  # INTERNSHIP
+                    self.logger.info("🎓 Using search_internships_streaming method")
                     # Use TRUE streaming method - internships sent immediately as found
                     job_urls = await scraper.search_internships_streaming(
                         keyword=search_query, 
@@ -255,6 +263,8 @@ class ConversationHandlers:
                 
                 # Step 4: Send completion message only (no job summary)
                 total_found = len(job_urls)
+                self.logger.info(f"📊 SEARCH COMPLETED - Total URLs returned: {total_found}, Jobs sent via callback: {found_count}")
+                
                 if total_found > 0:
                     await update.message.reply_text(
                         f"✅ **Search Complete!**\n\n"
