@@ -71,9 +71,7 @@ COPY requirements.txt .
 
 # Install Python dependencies with optimizations
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir -r requirements.txt \
-    # Cleanup pip cache
-    && pip cache purge
+    && pip install --no-cache-dir -r requirements.txt
 
 # ========================================
 # Stage 3: Application Build
@@ -128,19 +126,11 @@ FROM application as development
 RUN pip install --no-cache-dir \
     pytest \
     pytest-cov \
-    pytest-mock \
     black \
-    flake8 \
-    mypy \
-    ipython \
-    debugpy
+    flake8
 
 # Development-specific environment
-ENV LOG_LEVEL=DEBUG \
-    PYTHONDEBUG=1
-
-# Expose debug port
-EXPOSE 5678
+ENV LOG_LEVEL=DEBUG
 
 # Development command
-CMD ["python", "-m", "debugpy", "--listen", "0.0.0.0:5678", "--wait-for-client", "main.py"]
+CMD ["python", "main.py"]
