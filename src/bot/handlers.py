@@ -201,8 +201,7 @@ class ConversationHandlers:
             # Step 1: Initialize
             await self.send_progress_update(update, 
                 f"🚀 **Starting search for {role}**\n\n"
-                f"📋 **Step 1/5**: Initializing LinkedIn scraper..."
-            )
+                          )
             
             # Import here to avoid circular imports
             from ..scraper.linkedin import LinkedInScraper
@@ -212,12 +211,9 @@ class ConversationHandlers:
             
             # Step 2: Configure search parameters
             await self.send_progress_update(update,
-                f"⚙️ **Step 2/5**: Configuring search parameters\n\n"
                 f"🎯 **Target Role**: {role}\n"
                 f"📊 **Search Type**: {job_type.value.title()}\n"
                 f"📍 **Primary Location**: {self.config.search_config.default_location}\n"
-                f"🏠 **Including**: Remote positions\n"
-                f"🌍 **Backup**: Global opportunities"
             )
             
             # Progressive time search strategy
@@ -238,9 +234,7 @@ class ConversationHandlers:
                 try:
                     await self.send_progress_update(update,
                         f"🔍 **Step 3/5**: Searching LinkedIn ({i}/3)\n\n"
-                        f"📅 **Time Range**: {time_description}\n"
                         f"🎯 **Keywords**: {role}\n"
-                        f"⏳ **Please wait 10-15 seconds...**"
                     )
                     
                     self.logger.info(f"Searching for {role} in {time_description}")
