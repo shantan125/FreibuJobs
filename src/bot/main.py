@@ -17,7 +17,7 @@ from ..utils.config import ConfigurationManager
 from ..utils.logging import get_bot_logger, log_function, time_function
 from ..scraper.linkedin import LinkedInScraper
 from .handlers import ConversationHandlers
-from .messages import MessageTemplates, MessageFormatter, JobOpportunity, JobType
+from .messages import MessageTemplates, MessageFormatter, JobType
 from ..health.health_check import HealthCheckServer
 
 

@@ -253,19 +253,18 @@ class ConversationHandlers:
                 # Note: Jobs are already sent via job_found_callback during the search
                 # The job_urls list contains all found URLs for logging purposes
                 
-                # Step 4: Send completion message
+                # Step 4: Send completion message only (no job summary)
                 total_found = len(job_urls)
                 if total_found > 0:
                     await update.message.reply_text(
-                        f"**Search Complete!**\n\n"
-                        f"**Total Found**: {total_found} {role} opportunities\n"
-                        f"**Search Strategy**: India → Remote → Global\n"
-                        f"**Search Time**: {time.strftime('%H:%M:%S')}\n\n"
-                        f"**Good luck with your applications!**\n"
-                        f"**Use /start to search for different roles**",
+                        f"✅ **Search Complete!**\n\n"
+                        f"📊 **Total Found**: {total_found} {role} opportunities\n"
+                        f"🔍 **Search Strategy**: India → Remote → Global\n\n"
+                        f"💼 **Good luck with your applications!**\n"
+                        f"🔄 **Use /start to search for different roles**",
                         parse_mode='Markdown'
                     )
-                    self.logger.info(f"Completed streaming search for user {user_id}: {total_found} jobs sent")
+                    self.logger.info(f"Completed streaming search for user {user_id}: {total_found} jobs sent individually")
                 else:
                     # No results found
                     no_results_msg = (

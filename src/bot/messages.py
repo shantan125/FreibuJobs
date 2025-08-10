@@ -15,15 +15,6 @@ class LocationType(Enum):
     INDIA = ""
     REMOTE = ""
     GLOBAL = ""
-@dataclass
-class JobOpportunity:
-    """Data class for job opportunity information."""
-    company: str
-    url: str
-    location_type: LocationType
-    title: str = ""
-    def __str__(self) -> str:
-        return f"{self.location_type.value} [{self.company}]({self.url})"
 class MessageTemplates:
     """Professional message templates for the bot."""
     @staticmethod
@@ -127,24 +118,6 @@ class MessageTemplates:
             f"**Estimated time**: 30-45 seconds"
         )
     @staticmethod
-    def success_message(role: str, job_type: JobType, location: str,
-                       opportunities: List[JobOpportunity]) -> str:
-        """Generate success message with job opportunities."""
-        message = (
-            f"**{role} Opportunities Found!**\n\n"
-            f"**Search Type**: {job_type.value.title()}\n"
-            f"**Searched**: {location}, Remote & Global positions\n"
-            f"**Found**: {len(opportunities)} opportunities\n\n"
-        )
-        for i, opportunity in enumerate(opportunities, 1):
-            message += f"**{i}.** {opportunity}\n"
-        message += (
-            f"\n**Good luck with your applications!**\n"
-            f"*Found {role} positions prioritized by location*\n"
-            f"*Use /start to search for different roles*"
-        )
-        return message
-    @staticmethod
     def no_results_message(role: str, location: str) -> str:
         """Generate no results message."""
         return (
@@ -243,26 +216,6 @@ class MessageFormatter:
                 return "Location TBD"
         except:
             return "Location TBD"
-    
-    @staticmethod
-    def create_job_opportunity(job_url: str, role: str) -> JobOpportunity:
-        """Create job opportunity from URL."""
-        # Determine location type based on URL analysis
-        location_type = LocationType.INDIA
-        if "remote" in job_url.lower():
-            location_type = LocationType.REMOTE
-        elif not any(india_term in job_url.lower() for india_term in ["india", "bangalore", "mumbai", "delhi"]):
-            location_type = LocationType.GLOBAL
-            
-        company = MessageFormatter._extract_company_from_url(job_url)
-        title = MessageFormatter._extract_job_title_from_url(job_url) or role
-        
-        return JobOpportunity(
-            company=company,
-            url=job_url,
-            location_type=location_type,
-            title=title
-        )
 
 
 class MessageFormatterLegacy:
@@ -327,24 +280,3 @@ class MessageFormatterLegacy:
         if 'remote' in info_lower or 'f_WT=2' in job_info:
             return LocationType.REMOTE
         return LocationType.GLOBAL
-    @staticmethod
-    def create_job_opportunity(job_info: str, title: str = "") -> JobOpportunity:
-        """Create a JobOpportunity object from job info string or URL."""
-        company = MessageFormatter.extract_company_name(job_info)
-        location_type = MessageFormatter.determine_location_type(job_info)
-        extracted_title = MessageFormatter.extract_job_title(job_info)
-        location_info = MessageFormatter.extract_location_info(job_info)
-        # Create a display URL or use the job info
-        if job_info.startswith("http"):
-            display_url = job_info
-        else:
-            # Create a search-friendly URL for the job info
-            search_title = extracted_title.replace(' ', '+')
-            search_company = company.replace(' ', '+')
-            display_url = f"https://www.linkedin.com/jobs/search/?keywords={search_title}+{search_company}"
-        return JobOpportunity(
-            company=f"{company}" + (f" ({location_info})" if location_info else ""),
-            url=display_url,
-            location_type=location_type,
-            title=extracted_title or title
-        )

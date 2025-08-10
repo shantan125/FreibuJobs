@@ -5,7 +5,7 @@ Contains all Telegram bot handlers, conversation logic, and user interaction com
 """
 
 from .handlers import ConversationHandlers
-from .messages import MessageTemplates, MessageFormatter, JobType, LocationType, JobOpportunity
+from .messages import MessageTemplates, MessageFormatter, JobType, LocationType
 from .main import LinkedInJobBot
 
 __all__ = [
@@ -14,6 +14,5 @@ __all__ = [
     'MessageFormatter',
     'JobType',
     'LocationType',
-    'JobOpportunity',
     'LinkedInJobBot'
 ]
