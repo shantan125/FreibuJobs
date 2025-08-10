@@ -57,17 +57,23 @@ jobs:
           # Ensure Container Apps extension is ready
           az extension add --name containerapp --upgrade
 
-          # Ensure Container Apps Environment exists
-          if ! az containerapp env show \
-            --name ${{ env.AZURE_CONTAINER_ENV }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} 1> /dev/null 2>&1; then
-            echo "Creating Container Apps environment..."
+          # Resolve or create Container Apps Environment in region
+          # Try to find any environment in the subscription for this region
+          ENV_ID=$(az containerapp env list \
+            --query "[?location=='${{ env.AZURE_LOCATION }}'].id | [0]" -o tsv)
+
+          if [ -z "$ENV_ID" ]; then
+            echo "No Container Apps environment in region; creating one in RG '${{ env.AZURE_RESOURCE_GROUP }}'..."
             az containerapp env create \
               --name ${{ env.AZURE_CONTAINER_ENV }} \
               --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
               --location ${{ env.AZURE_LOCATION }}
+            ENV_ID=$(az containerapp env show \
+              --name ${{ env.AZURE_CONTAINER_ENV }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --query id -o tsv)
           else
-            echo "Container Apps environment exists."
+            echo "Using existing Container Apps environment: $ENV_ID"
           fi
 
           # Get ACR credentials for image pulls
@@ -100,7 +106,7 @@ jobs:
           az containerapp create \
             --name ${{ env.CONTAINER_APP }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --environment ${{ env.AZURE_CONTAINER_ENV }} \
+            --environment "$ENV_ID" \
             --image ${{ env.AZURE_REGISTRY }}.azurecr.io/${{ env.IMAGE_NAME }}:latest \
             --registry-server ${{ env.AZURE_REGISTRY }}.azurecr.io \
             --registry-username "$REG_USER" \
