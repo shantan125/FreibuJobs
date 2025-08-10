@@ -32,4 +32,4 @@ psutil==5.9.6
 # - Python 3.8+
 # - Chrome/Chromium browser
 # - ChromeDriver (auto-detected or manually installed)
-webdriver-manager==4.0.1
+webdriver-manager==4.0.2
