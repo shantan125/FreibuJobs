@@ -24,9 +24,9 @@ env:
   AZURE_LOCATION: eastasia
 
 jobs:
-  deploy:
+  build:
+    name: Build Image
     runs-on: ubuntu-latest
-
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
@@ -36,34 +36,50 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: 🧩 Install Azure CLI extensions
+      - name: 🔨 Build image in ACR
         run: |
-          az extension add --name containerapp --upgrade
-
-      - name: 🔨 Build and Deploy
-        run: |
-          # Build and push image
           az acr build \
             --registry ${{ env.AZURE_REGISTRY }} \
             --image ${{ env.IMAGE_NAME }}:latest \
             --file Dockerfile \
             .
 
-          # Ensure Resource Group exists
-          az group create \
-            --name ${{ env.AZURE_RESOURCE_GROUP }} \
-            --location ${{ env.AZURE_LOCATION }} 1> /dev/null
+  ensure-env:
+    name: Ensure Container Apps Environment
+    runs-on: ubuntu-latest
+    needs: build
+    outputs:
+      env_id: ${{ steps.resolve-env.outputs.ENV_ID }}
+    steps:
+      - name: 🔑 Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-          # Ensure Container Apps extension is ready
-          az extension add --name containerapp --upgrade
+      - name: 🧩 Ensure CLI extension
+        run: az extension add --name containerapp --upgrade
 
-          # Resolve or create Container Apps Environment in region
-          # Try to find any environment in the subscription for this region
-          ENV_ID=$(az containerapp env list \
-            --query "[?location=='${{ env.AZURE_LOCATION }}'].id | [0]" -o tsv)
+      - name: 🏗️ Ensure Resource Group
+        run: az group create --name ${{ env.AZURE_RESOURCE_GROUP }} --location ${{ env.AZURE_LOCATION }} 1> /dev/null
+
+      - name: 🔎 Resolve or create Environment
+        id: resolve-env
+        run: |
+          set -e
+          # Prefer an explicit env ID if provided as a secret
+          if [ -n "${{ secrets.AZURE_CONTAINER_ENV_ID }}" ]; then
+            echo "Using env id from secret."
+            ENV_ID='${{ secrets.AZURE_CONTAINER_ENV_ID }}'
+          else
+            # List managed environments in the target region across the subscription
+            ENV_ID=$(az resource list \
+              --resource-type Microsoft.App/managedEnvironments \
+              --location "${{ env.AZURE_LOCATION }}" \
+              --query "[0].id" -o tsv)
+          fi
 
           if [ -z "$ENV_ID" ]; then
-            echo "No Container Apps environment in region; creating one in RG '${{ env.AZURE_RESOURCE_GROUP }}'..."
+            echo "No Container Apps environment found in region; creating one..."
             az containerapp env create \
               --name ${{ env.AZURE_CONTAINER_ENV }} \
               --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
@@ -73,26 +89,35 @@ jobs:
               --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
               --query id -o tsv)
           else
-            echo "Using existing Container Apps environment: $ENV_ID"
+            echo "Found existing environment in region."
           fi
 
-          # Get ACR credentials for image pulls
-          REG_USER=$(az acr credential show --name ${{ env.AZURE_REGISTRY }} --query username -o tsv)
-          REG_PASS=$(az acr credential show --name ${{ env.AZURE_REGISTRY }} --query passwords[0].value -o tsv)
+          echo "ENV_ID=$ENV_ID" >> "$GITHUB_OUTPUT"
 
-          # Always deploy a fresh instance: delete existing Container App if present
-          if az containerapp show \
-            --name ${{ env.CONTAINER_APP }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} 1> /dev/null 2>&1; then
+  deploy:
+    name: Deploy Container App
+    runs-on: ubuntu-latest
+    needs: ensure-env
+    steps:
+      - name: 🔑 Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: 🧩 Ensure CLI extension
+        run: az extension add --name containerapp --upgrade
+
+      - name: 🔐 Get ACR credentials
+        id: acr
+        run: |
+          echo "REG_USER=$(az acr credential show --name ${{ env.AZURE_REGISTRY }} --query username -o tsv)" >> $GITHUB_OUTPUT
+          echo "REG_PASS=$(az acr credential show --name ${{ env.AZURE_REGISTRY }} --query passwords[0].value -o tsv)" >> $GITHUB_OUTPUT
+
+      - name: 🧹 Clean previous app (if any)
+        run: |
+          if az containerapp show --name ${{ env.CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} 1> /dev/null 2>&1; then
             echo "Deleting existing Container App for a clean deployment..."
-            az containerapp delete \
-              --yes \
-              --name ${{ env.CONTAINER_APP }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-              --no-wait
-
-            # Wait until deletion completes (timeout ~5 minutes)
-            echo "Waiting for deletion to complete..."
+            az containerapp delete --yes --name ${{ env.CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --no-wait
             for i in {1..60}; do
               if ! az containerapp show --name ${{ env.CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} 1> /dev/null 2>&1; then
                 echo "Container App deleted."
@@ -102,15 +127,16 @@ jobs:
             done
           fi
 
-          echo "Creating new Container App (fresh instance)..."
+      - name: 🚀 Create fresh Container App
+        run: |
           az containerapp create \
             --name ${{ env.CONTAINER_APP }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --environment "$ENV_ID" \
+            --environment "${{ needs.ensure-env.outputs.env_id }}" \
             --image ${{ env.AZURE_REGISTRY }}.azurecr.io/${{ env.IMAGE_NAME }}:latest \
             --registry-server ${{ env.AZURE_REGISTRY }}.azurecr.io \
-            --registry-username "$REG_USER" \
-            --registry-password "$REG_PASS" \
+            --registry-username "${{ steps.acr.outputs.REG_USER }}" \
+            --registry-password "${{ steps.acr.outputs.REG_PASS }}" \
             --target-port 8080 \
             --ingress external \
             --min-replicas 1 \
@@ -127,7 +153,4 @@ jobs:
       - name: ✅ Check Status
         run: |
           echo "🎉 Deployment completed!"
-          az containerapp show \
-            --name ${{ env.CONTAINER_APP }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query "properties.runningStatus" -o tsv
+          az containerapp show --name ${{ env.CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "properties.runningStatus" -o tsv
