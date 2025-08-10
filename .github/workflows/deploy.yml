@@ -129,6 +129,7 @@ jobs:
 
       - name: 🚀 Create fresh Container App
         run: |
+          # First create the app without secrets to avoid validation issues
           az containerapp create \
             --name ${{ env.CONTAINER_APP }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
@@ -143,18 +144,27 @@ jobs:
             --max-replicas 1 \
             --cpu 0.25 \
             --memory 0.5Gi \
-            --secrets telegram-bot-token="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
             --env-vars \
               MAX_RESULTS_PER_SEARCH=10 \
-              DEFAULT_LOCATION="India" \
-              TELEGRAM_BOT_TOKEN=secretref:telegram-bot-token
+              DEFAULT_LOCATION="India"
 
-      - name: 🔁 Set single revision mode
+      - name: 🔐 Add secrets and update environment variables
         run: |
+          # Add the Telegram bot token as a secret
+          az containerapp secret set \
+            --name ${{ env.CONTAINER_APP }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --secrets telegram-bot-token="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          
+          # Update to use the secret in environment variables
           az containerapp update \
             --name ${{ env.CONTAINER_APP }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --set configuration.activeRevisionsMode=Single
+            --set configuration.activeRevisionsMode=Single \
+            --set-env-vars \
+              MAX_RESULTS_PER_SEARCH=10 \
+              DEFAULT_LOCATION="India" \
+              TELEGRAM_BOT_TOKEN=secretref:telegram-bot-token
 
       - name: ✅ Check Status
         run: |
