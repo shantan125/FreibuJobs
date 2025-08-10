@@ -19,7 +19,7 @@ env:
   AZURE_RESOURCE_GROUP: rg-linkedin-bot
   AZURE_CONTAINER_ENV: linkedin-bot-env
   AZURE_REGISTRY: linkedinbotacr
-  CONTAINER_APP: linkedin-bot-app
+  CONTAINER_APP: linkedin-bot-app-${{ github.run_number }}
   IMAGE_NAME: linkedin-bot
   AZURE_LOCATION: eastasia
 
@@ -113,39 +113,24 @@ jobs:
           echo "REG_USER=$(az acr credential show --name ${{ env.AZURE_REGISTRY }} --query username -o tsv)" >> $GITHUB_OUTPUT
           echo "REG_PASS=$(az acr credential show --name ${{ env.AZURE_REGISTRY }} --query passwords[0].value -o tsv)" >> $GITHUB_OUTPUT
 
-      - name: 🧹 Clean previous app (if any)
+      - name: 🧹 Clean previous apps (keep only latest 2)
         run: |
-          if az containerapp show --name ${{ env.CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} 1> /dev/null 2>&1; then
-            echo "Deleting existing Container App for a clean deployment..."
-            az containerapp delete --yes --name ${{ env.CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }}
-            
-            echo "Waiting for complete deletion..."
-            for i in {1..120}; do
-              if ! az containerapp show --name ${{ env.CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} 1> /dev/null 2>&1; then
-                echo "Container App fully deleted."
-                break
-              fi
-              echo "Still deleting... (attempt $i/120)"
-              sleep 10
-            done
-            
-            # Additional wait to ensure Azure propagates the deletion
-            echo "Waiting additional 30 seconds for Azure propagation..."
-            sleep 30
-          else
-            echo "No existing Container App found."
-          fi
+          echo "Cleaning up old Container Apps..."
+          # List all linkedin-bot-app-* apps and delete old ones (keep latest 2)
+          az containerapp list \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "[?starts_with(name, 'linkedin-bot-app-')].{name:name,createdAt:properties.createdTime}" \
+            --output tsv | sort -k2 -r | tail -n +3 | cut -f1 | while read app_name; do
+            if [ -n "$app_name" ]; then
+              echo "Deleting old app: $app_name"
+              az containerapp delete --yes --name "$app_name" --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --no-wait || true
+            fi
+          done
 
       - name: 🚀 Create fresh Container App
         run: |
-          # Verify no app exists before creation
-          if az containerapp show --name ${{ env.CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} 1> /dev/null 2>&1; then
-            echo "ERROR: Container App still exists after deletion. Failing to avoid conflicts."
-            exit 1
-          fi
-          
-          echo "Creating new Container App..."
-          # First create the app without secrets to avoid validation issues
+          echo "Creating new Container App: ${{ env.CONTAINER_APP }}"
+          # Create app with unique name (no conflicts possible)
           az containerapp create \
             --name ${{ env.CONTAINER_APP }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
@@ -171,7 +156,7 @@ jobs:
             --name ${{ env.CONTAINER_APP }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --secrets telegram-bot-token="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-          
+
           # Update to use the secret in environment variables
           az containerapp update \
             --name ${{ env.CONTAINER_APP }} \
