@@ -60,3 +60,24 @@ chromedriver*
 geckodriver*
 *.tmp
 temp/
+
+# Development files (prevent future clutter)
+debug_*.py
+test_*.py
+*_test.py
+*.html
+*.bak
+*.old
+*_backup.*
+cleanup_*.py
+temp_*.py
+
+# Documentation clutter
+*.md
+!README.md
+!logs/README.md
+
+# Deployment artifacts
+deployment_*.log
+build_*.log
+azure_*.log
