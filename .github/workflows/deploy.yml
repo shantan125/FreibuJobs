@@ -160,7 +160,9 @@ jobs:
               MAX_RESULTS_PER_SEARCH=10 \
               DEFAULT_LOCATION="India" \
             --replace-env-vars \
-              TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"      - name: ✅ Check Status
+              TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+
+      - name: ✅ Check Status
         run: |
           echo "🎉 Deployment completed!"
           az containerapp show --name ${{ env.CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "properties.runningStatus" -o tsv
