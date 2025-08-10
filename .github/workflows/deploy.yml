@@ -25,6 +25,10 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: 🧩 Install Azure CLI extensions
+        run: |
+          az extension add --name containerapp --upgrade
+
       - name: 🔨 Build and Deploy
         run: |
           # Build and push image
@@ -34,7 +38,13 @@ jobs:
             --file Dockerfile \
             .
 
-          # Update container app
+          # Set/Update secret for Telegram token
+          az containerapp secret set \
+            --name ${{ env.CONTAINER_APP }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --secrets telegram-bot-token="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+
+          # Update container app image and environment variables
           az containerapp update \
             --name ${{ env.CONTAINER_APP }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
@@ -42,10 +52,7 @@ jobs:
             --set-env-vars \
               MAX_RESULTS_PER_SEARCH=10 \
               DEFAULT_LOCATION="India" \
-            --replace-secrets \
-              telegram-bot-token="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
-            --secret-env-vars \
-              TELEGRAM_BOT_TOKEN=telegram-bot-token
+              TELEGRAM_BOT_TOKEN=secretref:telegram-bot-token
 
       - name: ✅ Check Status
         run: |
