@@ -113,6 +113,7 @@ class MessageTemplates:
             )
 
     @staticmethod
+    @staticmethod
     async def format_single_job_message_async(job_url: str, role: str, job_number: int) -> str:
         """Async variant that uses extractJobDetails() for better company/location/title.
 
@@ -136,6 +137,31 @@ class MessageTemplates:
         except Exception:
             return MessageTemplates.format_single_job_message(job_url, role, job_number)
     
+    @staticmethod
+    def success_message(role: str, job_type: JobType, location: str, opportunities: List[str]) -> str:
+        """Generate success message with job opportunities."""
+        job_type_text = "internship" if job_type == JobType.INTERNSHIP else "job"
+        emoji = "🎓" if job_type == JobType.INTERNSHIP else "💼"
+        
+        # Create header
+        header = (
+            f"{emoji} **{role.title()} {job_type_text.title()} Results**\n\n"
+            f"**Found {len(opportunities)} current opportunities:**\n\n"
+        )
+        
+        # Add each opportunity
+        results = "\n\n".join(opportunities)
+        
+        # Add footer
+        footer = (
+            f"\n\n📍 **Focus**: {location}\n"
+            f"🔄 **Freshness**: Current opportunities\n"
+            f"🚀 **Ready to apply?** Click the links above!\n\n"
+            f"💡 **Tip**: Use /start to search for different roles"
+        )
+        
+        return header + results + footer
+
     @staticmethod
     def search_progress_message(role: str, job_type: JobType, location: str, max_results: int) -> str:
         """Generate initial search progress message."""
@@ -225,7 +251,7 @@ class MessageFormatter:
         details = {"company": "Tech Company", "title": None, "location": "India"}
 
         # Check if this is one of our generated current opportunity URLs
-        if "linkedin.com/jobs/view/39" in job_url:
+        if "linkedin.com/jobs/view/39" in job_url or "linkedin.com/jobs/view/40" in job_url:
             # This is a current opportunity - provide enhanced defaults
             details.update(MessageFormatter._extract_current_opportunity_details(job_url))
             return details

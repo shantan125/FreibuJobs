@@ -130,22 +130,32 @@ class LinkedInJobBot:
             search_duration = self.bot_logger.performance.end_timer(f"search_{user_id}")
             
             if job_urls:
-                # Convert URLs to job opportunities
-                opportunities = [
-                    MessageFormatter.create_job_opportunity(url) 
-                    for url in job_urls
-                ]
+                # Format job URLs into meaningful opportunities with async details
+                self.logger.info(f"Formatting {len(job_urls)} job opportunities for user {user_id}")
+                
+                opportunities = []
+                for i, job_url in enumerate(job_urls, 1):
+                    try:
+                        # Use async job formatting for better details
+                        job_message = await MessageTemplates.format_single_job_message_async(
+                            job_url, role, i
+                        )
+                        opportunities.append(job_message)
+                    except Exception as format_error:
+                        self.logger.warning(f"Failed to format job {i}: {format_error}")
+                        # Fallback to simple format
+                        opportunities.append(f"🔗 **Job {i}**: [View on LinkedIn]({job_url})")
                 
                 # Log successful search results
                 self.bot_logger.log_search_results(
                     user_id=user_id,
                     keyword=role,
                     result_count=len(job_urls),
-                    tier="multi_tier",
+                    tier="streaming_current",
                     duration=search_duration
                 )
                 
-                # Send success message with results
+                # Send success message with formatted results
                 success_msg = MessageTemplates.success_message(
                     role=role,
                     job_type=job_type,
@@ -204,30 +214,65 @@ class LinkedInJobBot:
     @time_function
     @log_function
     async def _perform_search(self, role: str, job_type: JobType, user_id: int) -> List[str]:
-        """Perform the actual LinkedIn search with enhanced monitoring."""
+        """Perform the actual LinkedIn search with enhanced monitoring and current jobs."""
         try:
             # Determine if searching for internships
             is_internship = job_type == JobType.INTERNSHIP
             
-            self.logger.debug(f"Performing search for user {user_id}", extra={
+            self.logger.debug(f"Performing current job search for user {user_id}", extra={
                 'user_id': user_id,
                 'role': role,
                 'is_internship': is_internship,
                 'max_results': self.config.search_config.max_results
             })
             
-            # Use the scraper to search
-            job_urls = await asyncio.to_thread(
-                self.scraper.search_for_jobs_and_internships,
-                keyword=role,
-                is_internship=is_internship,
-                max_results=self.config.search_config.max_results
-            )
+            # Use streaming search methods for current opportunities
+            job_urls = []
+            
+            try:
+                if is_internship:
+                    # Use streaming internship search
+                    collected_urls = []
+                    
+                    async def collect_url(url):
+                        collected_urls.append(url)
+                    
+                    await self.scraper.search_internships_streaming(
+                        keyword=role,
+                        max_results=self.config.search_config.max_results,
+                        job_callback=collect_url
+                    )
+                    job_urls = collected_urls
+                else:
+                    # Use streaming job search  
+                    collected_urls = []
+                    
+                    async def collect_url(url):
+                        collected_urls.append(url)
+                    
+                    await self.scraper.search_jobs_streaming(
+                        keyword=role,
+                        max_results=self.config.search_config.max_results,
+                        job_callback=collect_url
+                    )
+                    job_urls = collected_urls
+                    
+            except Exception as streaming_error:
+                self.logger.warning(f"Streaming search failed for user {user_id}: {streaming_error}")
+                
+                # Fallback to legacy method only if streaming completely fails
+                job_urls = await asyncio.to_thread(
+                    self.scraper.search_for_jobs_and_internships,
+                    keyword=role,
+                    is_internship=is_internship,
+                    max_results=self.config.search_config.max_results
+                )
             
             self.logger.info(f"🎯 Search completed for user {user_id}", extra={
                 'user_id': user_id,
                 'role': role,
-                'urls_found': len(job_urls)
+                'urls_found': len(job_urls),
+                'search_type': 'streaming' if job_urls else 'fallback'
             })
             
             return job_urls
