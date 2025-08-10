@@ -8,6 +8,7 @@ on:
       - "Dockerfile"
       - "requirements.txt"
       - "main.py"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 env:
