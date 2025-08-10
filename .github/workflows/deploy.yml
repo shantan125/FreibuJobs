@@ -3,7 +3,17 @@ name: 🚀 LinkedIn Bot Deploy
 on:
   push:
     branches: [main]
+    paths:
+      - "Dockerfile"
+      - "requirements.txt"
+      - "src/**"
+      - "main.py"
+      - ".github/workflows/deploy.yml"
   workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   AZURE_RESOURCE_GROUP: rg-linkedin-bot

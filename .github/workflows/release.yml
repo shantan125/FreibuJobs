@@ -1,0 +1,4 @@
+name: release (manual only)
+
+on:
+	workflow_dispatch:

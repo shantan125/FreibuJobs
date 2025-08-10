@@ -1,0 +1,4 @@
+name: azure-deploy (manual only)
+
+on:
+	workflow_dispatch:

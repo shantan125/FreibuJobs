@@ -1,0 +1,4 @@
+name: ci-cd (manual only)
+
+on:
+	workflow_dispatch:

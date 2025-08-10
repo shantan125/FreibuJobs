@@ -1,0 +1,4 @@
+name: development (manual only)
+
+on:
+	workflow_dispatch:
