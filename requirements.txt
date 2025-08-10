@@ -4,7 +4,7 @@
 # Core dependencies for professional Telegram bot with LinkedIn scraping
 
 # Telegram Bot Framework
-python-telegram-bot==21.0.1
+python-telegram-bot==22.3
 
 # Web Scraping
 selenium==4.15.2
