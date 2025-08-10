@@ -27,6 +27,24 @@ class BotConfig:
 
 
 @dataclass
+class LinkedInConfig:
+    """Configuration for LinkedIn (optional - not required for job search)."""
+    email: str = ""
+    password: str = ""
+    
+    def __post_init__(self):
+        """Initialize LinkedIn credentials from environment (optional)."""
+        if not self.email:
+            self.email = os.getenv("LINKEDIN_EMAIL", "")
+        if not self.password:
+            self.password = os.getenv("LINKEDIN_PASSWORD", "")
+        
+        # LinkedIn credentials are now optional since we don't need login for job search
+        if not self.email or not self.password:
+            print("ℹ️ Info: No LinkedIn credentials provided. Using public job search (recommended).")
+
+
+@dataclass
 class SearchConfig:
     """Configuration for job search parameters."""
     max_results: int = 10
@@ -86,6 +104,7 @@ class ConfigurationManager:
         # Initialize configurations
         self.telegram_token = self._get_telegram_token()
         self.bot_config = self._create_bot_config()
+        self.linkedin_config = self._create_linkedin_config()
         self.search_config = self._create_search_config()
         self.webdriver_config = self._create_webdriver_config()
         self.logging_config = self._create_logging_config()
@@ -113,6 +132,10 @@ class ConfigurationManager:
     def _create_bot_config(self) -> BotConfig:
         """Create bot configuration from environment variables."""
         return BotConfig(telegram_token=self.telegram_token)
+    
+    def _create_linkedin_config(self) -> LinkedInConfig:
+        """Create LinkedIn configuration from environment variables."""
+        return LinkedInConfig()
     
     def _create_search_config(self) -> SearchConfig:
         """Create search configuration from environment variables."""

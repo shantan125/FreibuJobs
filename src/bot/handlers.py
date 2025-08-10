@@ -195,6 +195,8 @@ class ConversationHandlers:
 
     async def perform_search(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, job_type: JobType, role: str) -> None:
         """Perform the actual LinkedIn search with progressive updates."""
+        import time  # Import time at the function level to avoid scope issues
+        
         try:
             # Step 1: Initialize
             await self.send_progress_update(update, 
@@ -291,7 +293,6 @@ class ConversationHandlers:
                 
                 # Convert URLs to JobOpportunity objects
                 from .messages import MessageFormatter
-                import time
                 
                 opportunities = []
                 for url in job_urls:
@@ -366,7 +367,6 @@ class ConversationHandlers:
                 
         except Exception as e:
             self.logger.error(f"Error performing search for user {user_id}: {e}")
-            import time
             await update.message.reply_text(
                 "❌ **Search Error**\n\n"
                 f"😔 Sorry, there was an error performing your search for '{role}'\n\n"

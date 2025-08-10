@@ -15,6 +15,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException
+from webdriver_manager.chrome import ChromeDriverManager
 
 from ..utils.config import ConfigurationManager
 from ..utils.logging import get_bot_logger, log_function, time_function
@@ -34,14 +35,17 @@ class LinkedInScraper:
         self.logger.info("✅ LinkedIn Scraper initialized with enhanced logging")
     
     def _setup_driver(self) -> webdriver.Chrome:
-        """Set up Chrome WebDriver with optimal configuration."""
+        """Set up Chrome WebDriver with optimal configuration using webdriver-manager."""
+        import os
+        import platform
+        
         try:
             chrome_options = Options()
             
-            # Add Chrome options for stability and performance
+            # Add Chrome options for stability and performance (Linux-optimized)
             chrome_options.add_argument("--headless")  # Run in background without opening window
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--no-sandbox")  # Critical for Docker/Azure
+            chrome_options.add_argument("--disable-dev-shm-usage")  # Critical for container environments
             chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--disable-extensions")
             chrome_options.add_argument("--disable-logging")
@@ -52,11 +56,22 @@ class LinkedInScraper:
             chrome_options.add_argument("--disable-features=VizDisplayCompositor")
             chrome_options.add_argument("--disable-blink-features=AutomationControlled")
             chrome_options.add_argument("--disable-images")  # Load faster, less detection
-            chrome_options.add_argument("--disable-javascript")  # Avoid JS-based detection
             chrome_options.add_argument("--remote-debugging-port=9222")  # Enable remote debugging
             chrome_options.add_argument("--disable-background-timer-throttling")
             chrome_options.add_argument("--disable-renderer-backgrounding")
             chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+            
+            # Platform-specific options
+            current_platform = platform.system().lower()
+            if current_platform == "linux":
+                chrome_options.add_argument("--disable-software-rasterizer")
+                chrome_options.add_argument("--disable-background-networking")
+                chrome_options.add_argument("--disable-default-apps")
+                chrome_options.add_argument("--disable-sync")
+                chrome_options.add_argument("--metrics-recording-only")
+                chrome_options.add_argument("--no-first-run")
+                chrome_options.add_argument("--single-process")  # For container environments
+            
             chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
             chrome_options.add_experimental_option('useAutomationExtension', False)
             
@@ -66,10 +81,9 @@ class LinkedInScraper:
                     "notifications": 2,
                     "geolocation": 2,
                     "media_stream": 2,
-                    "images": 2,  # Block images for faster loading
                 },
                 "profile.managed_default_content_settings": {
-                    "images": 2
+                    "images": 2  # Block images for faster loading
                 }
             }
             chrome_options.add_experimental_option("prefs", prefs)
@@ -82,27 +96,55 @@ class LinkedInScraper:
             # Window size
             chrome_options.add_argument("--window-size=1920,1080")
             
-            # Try to create service with ChromeDriver path if specified
-            service = None
-            if self.config.webdriver_config.chrome_driver_path:
-                try:
-                    service = Service(self.config.webdriver_config.chrome_driver_path)
-                    self.logger.info(f"Using specified ChromeDriver: {self.config.webdriver_config.chrome_driver_path}")
-                except Exception as e:
-                    self.logger.warning(f"Failed to use specified ChromeDriver path: {e}")
-            
-            # Create driver with better error handling
+            # Use webdriver-manager to automatically handle ChromeDriver installation and version matching
             max_retries = 3
             for attempt in range(max_retries):
                 try:
-                    if service:
-                        driver = webdriver.Chrome(service=service, options=chrome_options)
-                    else:
-                        driver = webdriver.Chrome(options=chrome_options)
+                    self.logger.info(f"Setting up ChromeDriver using webdriver-manager (attempt {attempt + 1}) on {current_platform}")
+                    
+                    # Use ChromeDriverManager to automatically download and manage ChromeDriver
+                    driver_path = ChromeDriverManager().install()
+                    self.logger.info(f"ChromeDriver downloaded to: {driver_path}")
+                    
+                    # Cross-platform path fixing
+                    if "THIRD_PARTY_NOTICES" in driver_path:
+                        # Extract the directory and find the actual chromedriver
+                        driver_dir = os.path.dirname(driver_path)
+                        
+                        # Try different possible executable names based on platform
+                        possible_names = []
+                        if current_platform == "windows":
+                            possible_names = ["chromedriver.exe", "chromedriver"]
+                        else:  # Linux/Mac
+                            possible_names = ["chromedriver", "google-chrome-stable", "chromium-browser"]
+                        
+                        for exe_name in possible_names:
+                            actual_driver_path = os.path.join(driver_dir, exe_name)
+                            if os.path.exists(actual_driver_path):
+                                driver_path = actual_driver_path
+                                self.logger.info(f"Fixed driver path to: {driver_path}")
+                                break
+                        else:
+                            # Look for chromedriver in parent directory structure
+                            parent_dir = os.path.dirname(driver_dir)
+                            for exe_name in possible_names:
+                                actual_driver_path = os.path.join(parent_dir, exe_name)
+                                if os.path.exists(actual_driver_path):
+                                    driver_path = actual_driver_path
+                                    self.logger.info(f"Found driver in parent dir: {driver_path}")
+                                    break
+                    
+                    # Make executable on Linux/Mac
+                    if current_platform != "windows" and os.path.exists(driver_path):
+                        os.chmod(driver_path, 0o755)
+                        self.logger.info(f"Made driver executable: {driver_path}")
+                    
+                    service = Service(driver_path)
+                    driver = webdriver.Chrome(service=service, options=chrome_options)
                     
                     # Test if driver is working
                     driver.get("data:,")  # Simple test page
-                    self.logger.info("✅ Chrome WebDriver initialized successfully")
+                    self.logger.info(f"✅ Chrome WebDriver initialized successfully on {current_platform}")
                     break
                     
                 except Exception as e:
@@ -159,33 +201,54 @@ class LinkedInScraper:
         job_urls = []
         
         try:
-            # Wait for job listings to load with updated selector
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, ".jobs-search__results-list .job-search-card"))
-            )
+            self.logger.info(f"Starting job extraction from page: {driver.current_url}")
             
-            # Try multiple selectors to find job links
+            # Wait for job listings to load with updated selector
+            try:
+                WebDriverWait(driver, 15).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, ".jobs-search__results-list .job-search-card, .base-search-card, .job-result-card"))
+                )
+                self.logger.info("Job cards found on page")
+            except TimeoutException:
+                self.logger.warning("Timeout waiting for job cards - trying alternative selectors")
+                # Try with more generic selectors
+                try:
+                    WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "[data-entity-urn*='job'], .job-card, .result-card"))
+                    )
+                    self.logger.info("Alternative job elements found")
+                except TimeoutException:
+                    self.logger.error("No job elements found on page")
+                    # Still continue to try extraction
+            
+            # Try multiple selectors to find job links (updated for current LinkedIn structure)
             selectors_to_try = [
-                ".job-search-card__link",  # Main job card links
-                ".jobs-search-card__link",  # Alternative job card links
-                "a[href*='/jobs/view/']",  # Direct URL pattern match
-                ".job-search-card h3 a",  # Job title links within cards
-                ".base-search-card__title a"  # Base card title links
+                "a[href*='/jobs/view/']",  # Direct URL pattern match (most reliable)
+                ".job-search-card a",  # Any link within job search cards
+                ".base-search-card a[href*='/jobs/view/']",  # Base card job links
+                ".job-result-card a[href*='/jobs/view/']",  # Result card job links
+                "[data-entity-urn*='job'] a",  # Entity-based job links
+                ".job-card a[href*='/jobs/view/']",  # Job card links
+                ".result-card a[href*='/jobs/view/']",  # Generic result card links
+                "h3 a[href*='/jobs/view/']",  # Job title links
+                ".job-title a",  # Job title links
+                ".job-search-card__link",  # Original selector as fallback
             ]
             
             for selector in selectors_to_try:
-                if job_urls:  # Stop if we found URLs
-                    break
-                    
                 try:
                     job_elements = driver.find_elements(By.CSS_SELECTOR, selector)
-                    self.logger.debug(f"Trying selector '{selector}': found {len(job_elements)} elements")
+                    self.logger.info(f"Trying selector '{selector}': found {len(job_elements)} elements")
                     
                     for element in job_elements:
                         try:
                             href = element.get_attribute('href')
-                            if href and '/jobs/view/' in href and href not in job_urls:
-                                job_urls.append(href)
+                            if href and '/jobs/view/' in href:
+                                # Clean up the URL (remove tracking parameters)
+                                clean_url = href.split('?')[0] if '?' in href else href
+                                if clean_url not in job_urls:
+                                    job_urls.append(clean_url)
+                                    self.logger.debug(f"Found job URL: {clean_url}")
                         except Exception as e:
                             self.logger.debug(f"Error extracting URL from element: {e}")
                             continue
@@ -193,11 +256,37 @@ class LinkedInScraper:
                 except Exception as e:
                     self.logger.debug(f"Error with selector '{selector}': {e}")
                     continue
+                
+                # Stop if we found a good number of URLs
+                if len(job_urls) >= 10:  # Don't need to try all selectors if we found enough
+                    break
+            
+            self.logger.info(f"Found {len(job_urls)} direct job URLs")
             
             # If no direct links found, extract job info from cards (fallback strategy)
             if not job_urls:
                 self.logger.info("No direct job URLs found, extracting job info from cards")
-                job_cards = driver.find_elements(By.CSS_SELECTOR, ".jobs-search__results-list .job-search-card")
+                
+                # Try multiple card selectors
+                card_selectors = [
+                    ".jobs-search__results-list .job-search-card",
+                    ".base-search-card",
+                    ".job-result-card",
+                    ".job-card",
+                    "[data-entity-urn*='job']"
+                ]
+                
+                job_cards = []
+                for card_selector in card_selectors:
+                    try:
+                        cards = driver.find_elements(By.CSS_SELECTOR, card_selector)
+                        if cards:
+                            job_cards = cards
+                            self.logger.info(f"Found {len(cards)} job cards using selector: {card_selector}")
+                            break
+                    except Exception as e:
+                        self.logger.debug(f"Card selector '{card_selector}' failed: {e}")
+                        continue
                 
                 for i, card in enumerate(job_cards[:10]):  # Limit to first 10 cards
                     try:
@@ -314,9 +403,11 @@ class LinkedInScraper:
         driver = None
         
         try:
+            self.logger.info(f"Starting search for: {keyword}, location: {location}, type: {'internship' if is_internship else 'job'}")
             driver = self._get_driver()
+            self.logger.info("WebDriver initialized successfully")
             
-            # Build search URL
+            # Build search URL (no login required for job search)
             search_url = self._build_search_url(
                 keyword=keyword,
                 location=location,
@@ -325,17 +416,32 @@ class LinkedInScraper:
                 time_filter=time_filter
             )
             
+            self.logger.info(f"Built search URL: {search_url}")
+            
             # Navigate to search page
+            self.logger.info("Navigating to LinkedIn search page...")
             driver.get(search_url)
-            time.sleep(3)  # Allow page to load
+            self.logger.info(f"Successfully navigated to: {driver.current_url}")
+            time.sleep(5)  # Allow page to load
+            
+            # Log page title for debugging
+            page_title = driver.title
+            self.logger.info(f"Page title: {page_title}")
+            
+            # Check if we're on the right page or redirected
+            if "jobs" not in driver.current_url.lower() and "jobs" not in page_title.lower():
+                self.logger.warning(f"Possible redirect detected. Current URL: {driver.current_url}, Title: {page_title}")
             
             # Extract jobs from multiple pages if needed
             pages_checked = 0
             max_pages = 3  # Limit to first 3 pages
             
             while len(job_urls) < max_results and pages_checked < max_pages:
+                self.logger.info(f"Extracting jobs from page {pages_checked + 1}")
+                
                 # Extract URLs from current page
                 page_urls = self._extract_job_urls(driver)
+                self.logger.info(f"Extracted {len(page_urls)} job entries from page {pages_checked + 1}")
                 
                 # Add new URLs
                 for url in page_urls:
@@ -354,11 +460,14 @@ class LinkedInScraper:
                             "button[aria-label='View next page']"
                         )
                         if next_button.is_enabled():
+                            self.logger.info(f"Going to page {pages_checked + 1}")
                             driver.execute_script("arguments[0].click();", next_button)
                             time.sleep(3)
                         else:
+                            self.logger.info("Next button disabled, no more pages")
                             break
                     except Exception:
+                        self.logger.info("No next page button found or failed to click")
                         break  # No more pages
             
             search_type = f"{location} {work_type}".strip()
@@ -367,12 +476,52 @@ class LinkedInScraper:
             else:
                 search_type += " jobs"
             
-            self.logger.info(f"Found {len(job_urls)} {search_type} for '{keyword}'")
+            self.logger.info(f"Search completed: Found {len(job_urls)} {search_type} for '{keyword}'")
             
         except Exception as e:
-            self.logger.error(f"Error searching jobs by criteria: {e}")
+            self.logger.error(f"Error searching jobs by criteria: {e}", exc_info=True)
         
         return job_urls[:max_results]
+    
+    def _login_to_linkedin(self, driver: webdriver.Chrome) -> bool:
+        """Login to LinkedIn for better access to job results."""
+        try:
+            self.logger.info("Attempting to login to LinkedIn...")
+            
+            # Navigate to LinkedIn login page
+            driver.get("https://www.linkedin.com/login")
+            time.sleep(3)
+            
+            # Find email and password fields
+            email_field = driver.find_element(By.ID, "username")
+            password_field = driver.find_element(By.ID, "password")
+            login_button = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
+            
+            # Enter credentials
+            email_field.clear()
+            email_field.send_keys(self.config.linkedin_config.email)
+            time.sleep(1)
+            
+            password_field.clear()
+            password_field.send_keys(self.config.linkedin_config.password)
+            time.sleep(1)
+            
+            # Click login button
+            login_button.click()
+            time.sleep(5)  # Wait for login to complete
+            
+            # Check if login was successful
+            current_url = driver.current_url
+            if "feed" in current_url or "linkedin.com" in current_url and "login" not in current_url:
+                self.logger.info("✅ LinkedIn login successful")
+                return True
+            else:
+                self.logger.warning(f"Login may have failed, current URL: {current_url}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"LinkedIn login failed: {e}")
+            return False
     
     def search_for_jobs_and_internships(self, keyword: str, is_internship: bool = False,
                                       max_results: int = 10, time_filter: str = "r86400") -> List[str]:
