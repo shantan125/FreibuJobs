@@ -117,18 +117,34 @@ jobs:
         run: |
           if az containerapp show --name ${{ env.CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} 1> /dev/null 2>&1; then
             echo "Deleting existing Container App for a clean deployment..."
-            az containerapp delete --yes --name ${{ env.CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --no-wait
-            for i in {1..60}; do
+            az containerapp delete --yes --name ${{ env.CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }}
+            
+            echo "Waiting for complete deletion..."
+            for i in {1..120}; do
               if ! az containerapp show --name ${{ env.CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} 1> /dev/null 2>&1; then
-                echo "Container App deleted."
+                echo "Container App fully deleted."
                 break
               fi
-              sleep 5
+              echo "Still deleting... (attempt $i/120)"
+              sleep 10
             done
+            
+            # Additional wait to ensure Azure propagates the deletion
+            echo "Waiting additional 30 seconds for Azure propagation..."
+            sleep 30
+          else
+            echo "No existing Container App found."
           fi
 
       - name: 🚀 Create fresh Container App
         run: |
+          # Verify no app exists before creation
+          if az containerapp show --name ${{ env.CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} 1> /dev/null 2>&1; then
+            echo "ERROR: Container App still exists after deletion. Failing to avoid conflicts."
+            exit 1
+          fi
+          
+          echo "Creating new Container App..."
           # First create the app without secrets to avoid validation issues
           az containerapp create \
             --name ${{ env.CONTAINER_APP }} \
