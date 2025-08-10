@@ -151,12 +151,12 @@ jobs:
 
       - name: 🔐 Add secrets and update environment variables
         run: |
-          # Add the Telegram bot token as a secret
+          # Add the Telegram bot token as a secret using correct syntax
           az containerapp secret set \
             --name ${{ env.CONTAINER_APP }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --secrets telegram-bot-token="${{ secrets.TELEGRAM_BOT_TOKEN }}"
-
+            --secrets "telegram-bot-token=${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          
           # Update to use the secret in environment variables
           az containerapp update \
             --name ${{ env.CONTAINER_APP }} \
@@ -165,9 +165,7 @@ jobs:
             --set-env-vars \
               MAX_RESULTS_PER_SEARCH=10 \
               DEFAULT_LOCATION="India" \
-              TELEGRAM_BOT_TOKEN=secretref:telegram-bot-token
-
-      - name: ✅ Check Status
+              TELEGRAM_BOT_TOKEN=secretref:telegram-bot-token      - name: ✅ Check Status
         run: |
           echo "🎉 Deployment completed!"
           az containerapp show --name ${{ env.CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "properties.runningStatus" -o tsv
