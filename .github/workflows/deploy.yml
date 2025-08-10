@@ -20,16 +20,16 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Target Environment'
+        description: "Target Environment"
         required: true
-        default: 'production'
+        default: "production"
         type: choice
         options:
           - development
           - staging
           - production
       force_deploy:
-        description: 'Force deployment (skip tests)'
+        description: "Force deployment (skip tests)"
         required: false
         default: false
         type: boolean
@@ -40,16 +40,16 @@ env:
   AZURE_CONTAINER_ENV: linkedin-bot-env
   AZURE_REGISTRY: linkedinbotacr
   IMAGE_NAME: linkedin-bot
-  
+
   # Environment-specific configurations
   PROD_CONTAINER_APP: linkedin-bot-app
   STAGING_CONTAINER_APP: linkedin-bot-staging
   DEV_CONTAINER_APP: linkedin-bot-dev
-  
+
   # Build and versioning
   BUILD_NUMBER: ${{ github.run_number }}
   COMMIT_SHA: ${{ github.sha }}
-  
+
   # Security and compliance
   ENABLE_SECURITY_SCAN: true
   ENABLE_VULNERABILITY_CHECK: true
@@ -60,23 +60,23 @@ jobs:
     name: 🔍 Code Quality & Validation
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' || github.event.inputs.force_deploy != 'true'
-    
+
     outputs:
       python-version: ${{ steps.setup-python.outputs.python-version }}
       cache-hit: ${{ steps.cache-deps.outputs.cache-hit }}
-    
+
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history for better analysis
+          fetch-depth: 0 # Full history for better analysis
 
       - name: 🐍 Setup Python Environment
         id: setup-python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
-          cache: 'pip'
+          python-version: "3.11"
+          cache: "pip"
 
       - name: 📦 Cache Dependencies
         id: cache-deps
@@ -148,11 +148,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: code-quality
     if: github.event_name == 'pull_request' || github.event.inputs.force_deploy != 'true'
-    
+
     strategy:
       matrix:
-        python-version: ['3.10', '3.11']
-    
+        python-version: ["3.10", "3.11"]
+
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
@@ -161,7 +161,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'
+          cache: "pip"
 
       - name: 🔧 Install Dependencies
         run: |
@@ -190,11 +190,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [code-quality]
     if: always() && (needs.code-quality.result == 'success' || github.event.inputs.force_deploy == 'true')
-    
+
     outputs:
       image-tag: ${{ steps.build.outputs.image-tag }}
       image-digest: ${{ steps.build.outputs.image-digest }}
-    
+
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
@@ -253,7 +253,7 @@ jobs:
           echo "✅ Image built successfully"
           echo "📋 Image: $IMAGE_TAG"
           echo "🔐 Digest: $IMAGE_DIGEST"
-          
+
           echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "image-digest=$IMAGE_DIGEST" >> $GITHUB_OUTPUT
           echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
@@ -262,7 +262,7 @@ jobs:
         if: env.ENABLE_SECURITY_SCAN == 'true'
         run: |
           echo "🔒 Running container security scan..."
-          
+
           # Install Trivy for vulnerability scanning
           sudo apt-get update
           sudo apt-get install wget apt-transport-https gnupg lsb-release
@@ -287,11 +287,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-and-scan, testing]
     if: always() && (needs.build-and-scan.result == 'success' && (needs.testing.result == 'success' || needs.testing.result == 'skipped' || github.event.inputs.force_deploy == 'true'))
-    
-    environment: 
+
+    environment:
       name: ${{ steps.deploy.outputs.environment }}
       url: ${{ steps.deploy.outputs.app-url }}
-    
+
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
@@ -500,7 +500,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [deploy]
     if: always() && needs.deploy.result == 'success'
-    
+
     steps:
       - name: 🔑 Azure Login
         uses: azure/login@v1
@@ -542,7 +542,7 @@ jobs:
           echo "🧪 Running functional tests against deployed application..."
 
           APP_URL="${{ needs.deploy.outputs.app-url }}"
-          
+
           if [ ! -z "$APP_URL" ]; then
             # Basic connectivity test
             echo "Testing connectivity to $APP_URL..."
@@ -573,7 +573,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [code-quality, testing, build-and-scan, deploy, monitoring]
     if: always()
-    
+
     steps:
       - name: 📋 Generate Deployment Report
         run: |
@@ -586,7 +586,7 @@ jobs:
           echo "- **Timestamp**: $(date -u)" >> deployment-report.md
           echo "- **Triggered by**: ${{ github.actor }}" >> deployment-report.md
           echo "" >> deployment-report.md
-          
+
           echo "## ✅ Pipeline Results" >> deployment-report.md
           echo "- **Code Quality**: ${{ needs.code-quality.result || 'Skipped' }}" >> deployment-report.md
           echo "- **Testing**: ${{ needs.testing.result || 'Skipped' }}" >> deployment-report.md
@@ -594,7 +594,7 @@ jobs:
           echo "- **Deployment**: ${{ needs.deploy.result || 'Failed' }}" >> deployment-report.md
           echo "- **Monitoring**: ${{ needs.monitoring.result || 'Failed' }}" >> deployment-report.md
           echo "" >> deployment-report.md
-          
+
           if [ "${{ needs.deploy.result }}" = "success" ]; then
             echo "## 🎉 Deployment Success!" >> deployment-report.md
             echo "- **Application URL**: ${{ needs.deploy.outputs.app-url }}" >> deployment-report.md
@@ -620,7 +620,7 @@ jobs:
           fi
 
           cat deployment-report.md
-          
+
           echo "" 
           echo "🏁 Pipeline completed!"
           echo "📋 Check the summary above for detailed results"

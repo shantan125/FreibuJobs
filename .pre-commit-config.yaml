@@ -23,7 +23,7 @@ repos:
     rev: 6.1.0
     hooks:
       - id: flake8
-        args: [--max-line-length=100, --ignore=E203,W503]
+        args: [--max-line-length=100, --ignore=E203, W503]
         additional_dependencies: [flake8-docstrings, flake8-bugbear]
 
   # Type checking
@@ -52,21 +52,21 @@ repos:
       - id: check-merge-conflict
       - id: no-commit-to-branch
         args: [--branch=main, --branch=production]
-      
+
       # File formatting
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
       - id: end-of-file-fixer
       - id: mixed-line-ending
         args: [--fix=lf]
-      
+
       # YAML/JSON validation
       - id: check-yaml
         args: [--unsafe]
       - id: check-json
       - id: pretty-format-json
         args: [--autofix, --indent=2]
-      
+
       # Python-specific
       - id: check-ast
       - id: check-builtin-literals
@@ -74,7 +74,7 @@ repos:
       - id: debug-statements
       - id: name-tests-test
         args: [--pytest-test-first]
-      
+
       # General security
       - id: detect-private-key
       - id: detect-aws-credentials
@@ -114,7 +114,7 @@ repos:
     rev: 2.3.5
     hooks:
       - id: safety
-        args: [--ignore=52495]  # Ignore specific CVE if needed
+        args: [--ignore=52495] # Ignore specific CVE if needed
 
   # Local hooks for project-specific checks
   - repo: local
@@ -125,34 +125,34 @@ repos:
         entry: bash -c 'find . -name "*.py" -exec grep -l $'\''\x00'\'' {} \; | head -1 && exit 1 || exit 0'
         language: system
         types: [python]
-        
+
       # Ensure proper Python syntax
       - id: python-syntax-check
         name: Python syntax check
         entry: python -m py_compile
         language: system
         types: [python]
-        
+
       # Check for large files
       - id: check-large-files
         name: Check for large files
         entry: bash -c 'find . -size +5M -not -path "./.git/*" | head -1 && exit 1 || exit 0'
         language: system
-        
+
       # Ensure requirements.txt is properly formatted
       - id: requirements-txt-format
         name: Check requirements.txt format
         entry: bash -c 'sort requirements.txt | uniq > requirements_sorted.txt && mv requirements_sorted.txt requirements.txt'
         language: system
         files: requirements\.txt$
-        
+
       # Check for TODO/FIXME comments in production code
       - id: no-todo-fixme
         name: Check for TODO/FIXME in production code
         entry: bash -c 'grep -rn "TODO\|FIXME" src/ && exit 1 || exit 0'
         language: system
         types: [python]
-        
+
       # Ensure proper log level configuration
       - id: check-log-levels
         name: Check for debug logs in production
@@ -164,11 +164,11 @@ repos:
 ci:
   autofix_commit_msg: |
     [pre-commit.ci] auto fixes from pre-commit.com hooks
-    
+
     for more information, see https://pre-commit.ci
   autofix_prs: true
-  autoupdate_branch: ''
-  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_branch: ""
+  autoupdate_commit_msg: "[pre-commit.ci] pre-commit autoupdate"
   autoupdate_schedule: weekly
   skip: [hadolint-docker, detect-secrets]
   submodules: false
