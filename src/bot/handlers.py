@@ -72,8 +72,8 @@ class ConversationHandlers:
             # Create keyboard with job type options
             keyboard = [
                 [
-                    InlineKeyboardButton("💼 Full-Time Job", callback_data="job"),
-                    InlineKeyboardButton("🎓 Internship", callback_data="internship")
+                    InlineKeyboardButton("Full-Time Job", callback_data="job"),
+                    InlineKeyboardButton("Internship", callback_data="internship")
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -200,7 +200,7 @@ class ConversationHandlers:
         try:
             # Step 1: Initialize
             await self.send_progress_update(update, 
-                f"🚀 **Starting search for {role}**\n\n"
+                f"**Starting search for {role}**\n\n"
                           )
             
             # Import here to avoid circular imports
@@ -211,9 +211,9 @@ class ConversationHandlers:
             
             # Step 2: Configure search parameters
             await self.send_progress_update(update,
-                f"🎯 **Target Role**: {role}\n"
-                f"📊 **Search Type**: {job_type.value.title()}\n"
-                f"📍 **Primary Location**: {self.config.search_config.default_location}\n"
+                f"**Target Role**: {role}\n"
+                f"**Search Type**: {job_type.value.title()}\n"
+                f"**Primary Location**: {self.config.search_config.default_location}\n"
             )
             
             # Progressive time search strategy
@@ -233,8 +233,8 @@ class ConversationHandlers:
             for i, (time_filter, time_description) in enumerate(time_filters, 1):
                 try:
                     await self.send_progress_update(update,
-                        f"🔍 **Step 3/5**: Searching LinkedIn ({i}/3)\n\n"
-                        f"🎯 **Keywords**: {role}\n"
+                        f"**Step 3/5**: Searching LinkedIn ({i}/3)\n\n"
+                        f"**Keywords**: {role}\n"
                     )
                     
                     self.logger.info(f"Searching for {role} in {time_description}")
@@ -256,32 +256,32 @@ class ConversationHandlers:
                     # If we found jobs, break out of the loop
                     if job_urls:
                         await self.send_progress_update(update,
-                            f"✅ **Found {len(job_urls)} opportunities!**\n\n"
-                            f"📅 **Time Range**: {time_description}\n"
-                            f"📊 **Processing results...**"
+                            f"**Found {len(job_urls)} opportunities!**\n\n"
+                            f"**Time Range**: {time_description}\n"
+                            f"**Processing results...**"
                         )
                         self.logger.info(f"Found {len(job_urls)} jobs for {role} in {time_description}")
                         break
                     else:
                         await self.send_progress_update(update,
-                            f"⏳ **No results in {time_description}**\n\n"
-                            f"🔄 **Expanding search to longer timeframe...**"
+                            f"**No results in {time_description}**\n\n"
+                            f"**Expanding search to longer timeframe...**"
                         )
                         self.logger.info(f"No jobs found for {role} in {time_description}, trying longer timeframe")
                         
                 except Exception as search_error:
                     self.logger.error(f"Error searching with {time_description}: {search_error}")
                     await self.send_progress_update(update,
-                        f"⚠️ **Search issue with {time_description}**\n\n"
-                        f"🔄 **Trying alternative timeframe...**"
+                        f"**Search issue with {time_description}**\n\n"
+                        f"**Trying alternative timeframe...**"
                     )
                     continue
             
             # Step 4: Process results
             if job_urls:
                 await self.send_progress_update(update,
-                    f"📋 **Step 4/5**: Processing {len(job_urls)} opportunities\n\n"
-                    f"🏷️ **Categorizing by location...**\n"
+                    f"**Step 4/5**: Processing {len(job_urls)} opportunities\n\n"
+                    f"**Categorizing by location...**\n"
                     f"� **Formatting results...**"
                 )
                 
@@ -299,8 +299,8 @@ class ConversationHandlers:
                 
                 # Step 5: Final results
                 await self.send_progress_update(update,
-                    f"🎉 **Step 5/5**: Search complete!\n\n"
-                    f"✅ **Found**: {len(opportunities)} {role} opportunities\n"
+                    f"**Step 5/5**: Search complete!\n\n"
+                    f"**Found**: {len(opportunities)} {role} opportunities\n"
                     f"📤 **Sending results...**"
                 )
                 
@@ -321,10 +321,10 @@ class ConversationHandlers:
                 # Add timeframe and search details
                 enhanced_msg = (
                     results_msg + 
-                    f"\n\n📅 **Search Range**: {successful_timeframe}\n"
+                    f"\n\n**Search Range**: {successful_timeframe}\n"
                     f"🕐 **Search Time**: {time.strftime('%H:%M:%S')}\n"
-                    f"🎯 **Keywords Used**: {role}\n"
-                    f"📍 **Locations Searched**: India → Remote → Global"
+                    f"**Keywords Used**: {role}\n"
+                    f"**Locations Searched**: India → Remote → Global"
                 )
                 
                 await update.message.reply_text(enhanced_msg, parse_mode='Markdown')
@@ -332,29 +332,29 @@ class ConversationHandlers:
             else:
                 # No results found even with 7-day search
                 await self.send_progress_update(update,
-                    f"😔 **Step 5/5**: Search complete - No results\n\n"
-                    f"🔍 **Searched all timeframes without success**"
+                    f"**Step 5/5**: Search complete - No results\n\n"
+                    f"**Searched all timeframes without success**"
                 )
                 
                 no_results_msg = (
-                    f"😔 **No {role} positions found**\n\n"
-                    f"**🔍 Comprehensive search completed:**\n"
-                    f"📅 ✓ Last 24 hours\n"
-                    f"📅 ✓ Last 2 days\n"
-                    f"📅 ✓ Last 7 days\n\n"
-                    f"**📍 Locations searched:**\n"
-                    f"🇮🇳 ✓ {self.config.search_config.default_location}\n"
-                    f"🏠 ✓ Remote positions\n"
-                    f"🌍 ✓ Global opportunities\n\n"
-                    f"**💡 Suggestions to improve results:**\n"
+                    f"**No {role} positions found**\n\n"
+                    f"**Comprehensive search completed:**\n"
+                    f"✓ Last 24 hours\n"
+                    f"✓ Last 2 days\n"
+                    f"✓ Last 7 days\n\n"
+                    f"**Locations searched:**\n"
+                    f"✓ {self.config.search_config.default_location}\n"
+                    f"✓ Remote positions\n"
+                    f"✓ Global opportunities\n\n"
+                    f"**Suggestions to improve results:**\n"
                     f"• Try different keywords:\n"
                     f"  - 'Software Developer' instead of 'Java Developer'\n"
                     f"  - 'Backend Developer' instead of 'Java Developer'\n"
                     f"  - 'Full Stack Developer' for broader results\n"
                     f"• Try broader terms like 'Software Engineer'\n"
                     f"• Check back in a few hours - new jobs are posted regularly\n\n"
-                    f"🔄 **Try again with different keywords using /start**\n"
-                    f"⏰ **Search completed at**: {time.strftime('%H:%M:%S')}"
+                    f"**Try again with different keywords using /start**\n"
+                    f"**Search completed at**: {time.strftime('%H:%M:%S')}"
                 )
                 await update.message.reply_text(no_results_msg, parse_mode='Markdown')
                 self.logger.info(f"No jobs found for user {user_id} query: {search_query} (tried all timeframes)")
@@ -362,8 +362,8 @@ class ConversationHandlers:
         except Exception as e:
             self.logger.error(f"Error performing search for user {user_id}: {e}")
             await update.message.reply_text(
-                "❌ **Search Error**\n\n"
-                f"😔 Sorry, there was an error performing your search for '{role}'\n\n"
+                "**Search Error**\n\n"
+                f"Sorry, there was an error performing your search for '{role}'\n\n"
                 f"**What happened:**\n"
                 f"• Technical issue during LinkedIn search\n"
                 f"• This could be temporary\n\n"
@@ -371,7 +371,7 @@ class ConversationHandlers:
                 f"• Wait 1-2 minutes and try again with /start\n"
                 f"• Try different keywords\n"
                 f"• The service will be restored automatically\n\n"
-                f"⏰ **Error time**: {time.strftime('%H:%M:%S')}",
+                f"**Error time**: {time.strftime('%H:%M:%S')}",
                 parse_mode='Markdown'
             )
         finally:
@@ -413,7 +413,7 @@ class ConversationHandlers:
         """Handle conversation timeout."""
         try:
             await update.effective_message.reply_text(
-                "⏰ **Conversation timed out**\n\n"
+                "**Conversation timed out**\n\n"
                 "Please use /start to begin a new search.",
                 parse_mode='Markdown'
             )
