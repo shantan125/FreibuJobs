@@ -11,6 +11,7 @@ env:
   AZURE_REGISTRY: linkedinbotacr
   CONTAINER_APP: linkedin-bot-app
   IMAGE_NAME: linkedin-bot
+  AZURE_LOCATION: eastasia
 
 jobs:
   deploy:
@@ -38,18 +39,71 @@ jobs:
             --file Dockerfile \
             .
 
-          # Set/Update secret for Telegram token
-          az containerapp secret set \
-            --name ${{ env.CONTAINER_APP }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --secrets telegram-bot-token="${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          # Ensure Resource Group exists
+          az group create \
+            --name ${{ env.AZURE_RESOURCE_GROUP }} \
+            --location ${{ env.AZURE_LOCATION }} 1> /dev/null
 
-          # Update container app image and environment variables
-          az containerapp update \
+          # Ensure Container Apps extension is ready
+          az extension add --name containerapp --upgrade
+
+          # Ensure Container Apps Environment exists
+          if ! az containerapp env show \
+            --name ${{ env.AZURE_CONTAINER_ENV }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} 1> /dev/null 2>&1; then
+            echo "Creating Container Apps environment..."
+            az containerapp env create \
+              --name ${{ env.AZURE_CONTAINER_ENV }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --location ${{ env.AZURE_LOCATION }}
+          else
+            echo "Container Apps environment exists."
+          fi
+
+          # Get ACR credentials for image pulls
+          REG_USER=$(az acr credential show --name ${{ env.AZURE_REGISTRY }} --query username -o tsv)
+          REG_PASS=$(az acr credential show --name ${{ env.AZURE_REGISTRY }} --query passwords[0].value -o tsv)
+
+          # Always deploy a fresh instance: delete existing Container App if present
+          if az containerapp show \
+            --name ${{ env.CONTAINER_APP }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} 1> /dev/null 2>&1; then
+            echo "Deleting existing Container App for a clean deployment..."
+            az containerapp delete \
+              --yes \
+              --name ${{ env.CONTAINER_APP }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --no-wait
+
+            # Wait until deletion completes (timeout ~5 minutes)
+            echo "Waiting for deletion to complete..."
+            for i in {1..60}; do
+              if ! az containerapp show --name ${{ env.CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} 1> /dev/null 2>&1; then
+                echo "Container App deleted."
+                break
+              fi
+              sleep 5
+            done
+          fi
+
+          echo "Creating new Container App (fresh instance)..."
+          az containerapp create \
             --name ${{ env.CONTAINER_APP }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --environment ${{ env.AZURE_CONTAINER_ENV }} \
             --image ${{ env.AZURE_REGISTRY }}.azurecr.io/${{ env.IMAGE_NAME }}:latest \
-            --set-env-vars \
+            --registry-server ${{ env.AZURE_REGISTRY }}.azurecr.io \
+            --registry-username "$REG_USER" \
+            --registry-password "$REG_PASS" \
+            --target-port 8080 \
+            --ingress external \
+            --min-replicas 1 \
+            --max-replicas 1 \
+            --cpu 0.25 \
+            --memory 0.5Gi \
+            --revision-mode single \
+            --secrets telegram-bot-token="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
+            --env-vars \
               MAX_RESULTS_PER_SEARCH=10 \
               DEFAULT_LOCATION="India" \
               TELEGRAM_BOT_TOKEN=secretref:telegram-bot-token
