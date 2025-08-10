@@ -2,12 +2,12 @@ name: Deploy LinkedIn Bot to Azure
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     paths:
-      - 'src/**'
-      - 'Dockerfile'
-      - 'requirements.txt'
-      - 'main.py'
+      - "src/**"
+      - "Dockerfile"
+      - "requirements.txt"
+      - "main.py"
   workflow_dispatch:
 
 env:
@@ -21,109 +21,109 @@ jobs:
   deploy:
     name: Build and Deploy
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Azure Login
-      uses: azure/login@v1
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Build and Deploy to Azure Container Apps
-      run: |
-        echo "🚀 Starting deployment..."
-        
-        # Build and deploy directly using Container Apps
-        az containerapp up \
-          --name ${{ env.AZURE_CONTAINER_APP }} \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --environment ${{ env.AZURE_CONTAINER_ENV }} \
-          --image ${{ env.AZURE_REGISTRY }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} \
-          --source . \
-          --target-port 8080 \
-          --ingress external \
-          --min-replicas 1 \
-          --max-replicas 3 \
-          --cpu 0.5 \
-          --memory 1.0Gi \
-          --env-vars \
-            TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
-            AZURE_ENVIRONMENT=production \
-            LOG_LEVEL=INFO \
-            MAX_RESULTS_PER_SEARCH=10 \
-            DEFAULT_LOCATION="India"
+      - name: Build and Deploy to Azure Container Apps
+        run: |
+          echo "🚀 Starting deployment..."
 
-    - name: Health Check
-      run: |
-        echo "🏥 Running health check..."
-        
-        # Get app URL
-        FQDN=$(az containerapp show \
-          --name ${{ env.AZURE_CONTAINER_APP }} \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --query properties.configuration.ingress.fqdn \
-          --output tsv)
-        
-        if [ ! -z "$FQDN" ]; then
-          echo "📍 App URL: https://$FQDN"
-          
-          # Wait for deployment
-          echo "⏳ Waiting for deployment to complete..."
-          sleep 60
-          
-          # Health check
-          for i in {1..3}; do
-            echo "🔍 Health check attempt $i/3..."
-            if curl -f -s "https://$FQDN" > /dev/null 2>&1; then
-              echo "✅ Bot is healthy and running!"
-              break
-            else
-              echo "⚠️ Health check failed, retrying in 30s..."
-              sleep 30
-            fi
+          # Build and deploy directly using Container Apps
+          az containerapp up \
+            --name ${{ env.AZURE_CONTAINER_APP }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --environment ${{ env.AZURE_CONTAINER_ENV }} \
+            --image ${{ env.AZURE_REGISTRY }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --source . \
+            --target-port 8080 \
+            --ingress external \
+            --min-replicas 1 \
+            --max-replicas 3 \
+            --cpu 0.5 \
+            --memory 1.0Gi \
+            --env-vars \
+              TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
+              AZURE_ENVIRONMENT=production \
+              LOG_LEVEL=INFO \
+              MAX_RESULTS_PER_SEARCH=10 \
+              DEFAULT_LOCATION="India"
+
+      - name: Health Check
+        run: |
+          echo "🏥 Running health check..."
+
+          # Get app URL
+          FQDN=$(az containerapp show \
+            --name ${{ env.AZURE_CONTAINER_APP }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query properties.configuration.ingress.fqdn \
+            --output tsv)
+
+          if [ ! -z "$FQDN" ]; then
+            echo "📍 App URL: https://$FQDN"
             
-            if [ $i -eq 3 ]; then
-              echo "❌ Health check failed after 3 attempts"
-              echo "ℹ️ Bot may still be starting up. Check logs if needed."
-            fi
-          done
-        fi
+            # Wait for deployment
+            echo "⏳ Waiting for deployment to complete..."
+            sleep 60
+            
+            # Health check
+            for i in {1..3}; do
+              echo "🔍 Health check attempt $i/3..."
+              if curl -f -s "https://$FQDN" > /dev/null 2>&1; then
+                echo "✅ Bot is healthy and running!"
+                break
+              else
+                echo "⚠️ Health check failed, retrying in 30s..."
+                sleep 30
+              fi
+              
+              if [ $i -eq 3 ]; then
+                echo "❌ Health check failed after 3 attempts"
+                echo "ℹ️ Bot may still be starting up. Check logs if needed."
+              fi
+            done
+          fi
 
-    - name: Deployment Summary
-      run: |
-        # Get deployment details
-        FQDN=$(az containerapp show \
-          --name ${{ env.AZURE_CONTAINER_APP }} \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --query properties.configuration.ingress.fqdn \
-          --output tsv)
-        
-        REVISION=$(az containerapp show \
-          --name ${{ env.AZURE_CONTAINER_APP }} \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --query properties.latestRevisionName \
-          --output tsv)
-        
-        echo "🎉 Deployment completed successfully!"
-        echo ""
-        echo "📋 Details:"
-        echo "  • App: ${{ env.AZURE_CONTAINER_APP }}"
-        echo "  • Revision: $REVISION"
-        echo "  • URL: https://$FQDN"
-        echo "  • Commit: ${{ github.sha }}"
-        echo ""
-        echo "🔧 Quick commands:"
-        echo "  • View logs: az containerapp logs show --name ${{ env.AZURE_CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --follow"
-        echo "  • Scale up: az containerapp update --name ${{ env.AZURE_CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --min-replicas 1"
-        
-        # GitHub summary
-        echo "## 🚀 LinkedIn Bot Deployment" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "✅ **Status**: Successfully deployed" >> $GITHUB_STEP_SUMMARY
-        echo "🔗 **URL**: https://$FQDN" >> $GITHUB_STEP_SUMMARY
-        echo "📦 **Revision**: $REVISION" >> $GITHUB_STEP_SUMMARY
-        echo "💻 **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "The LinkedIn Bot is now running with the latest streaming functionality!" >> $GITHUB_STEP_SUMMARY
+      - name: Deployment Summary
+        run: |
+          # Get deployment details
+          FQDN=$(az containerapp show \
+            --name ${{ env.AZURE_CONTAINER_APP }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query properties.configuration.ingress.fqdn \
+            --output tsv)
+
+          REVISION=$(az containerapp show \
+            --name ${{ env.AZURE_CONTAINER_APP }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query properties.latestRevisionName \
+            --output tsv)
+
+          echo "🎉 Deployment completed successfully!"
+          echo ""
+          echo "📋 Details:"
+          echo "  • App: ${{ env.AZURE_CONTAINER_APP }}"
+          echo "  • Revision: $REVISION"
+          echo "  • URL: https://$FQDN"
+          echo "  • Commit: ${{ github.sha }}"
+          echo ""
+          echo "🔧 Quick commands:"
+          echo "  • View logs: az containerapp logs show --name ${{ env.AZURE_CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --follow"
+          echo "  • Scale up: az containerapp update --name ${{ env.AZURE_CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --min-replicas 1"
+
+          # GitHub summary
+          echo "## 🚀 LinkedIn Bot Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Status**: Successfully deployed" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 **URL**: https://$FQDN" >> $GITHUB_STEP_SUMMARY
+          echo "📦 **Revision**: $REVISION" >> $GITHUB_STEP_SUMMARY
+          echo "💻 **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The LinkedIn Bot is now running with the latest streaming functionality!" >> $GITHUB_STEP_SUMMARY

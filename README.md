@@ -9,17 +9,20 @@ A professional Telegram bot that delivers LinkedIn job and internship opportunit
 ## ✨ Key Features
 
 ### 🚀 **Real-Time Job Streaming**
+
 - Jobs appear **instantly** as they're discovered (no waiting!)
 - Live progress updates during search
 - Immediate job notifications with company details
 
 ### 🎯 **Smart Search Strategy**
+
 - **India-First**: Bangalore, Mumbai, Delhi, Hyderabad, Pune
 - **Remote-Friendly**: Remote positions suitable for India
 - **Global Reach**: Worldwide opportunities as backup
 - **Progressive Time Filtering**: 24h → 2d → 7d automatically
 
 ### 💬 **Professional Experience**
+
 - Clean, emoji-free interface
 - Interactive job type selection (Jobs/Internships)
 - Guided conversation flow
@@ -48,6 +51,7 @@ linkedin-bot/
 ### Local Development
 
 1. **Clone & Install**
+
    ```bash
    git clone https://github.com/shantan125/FreibuJobs.git
    cd linkedin-bot
@@ -55,6 +59,7 @@ linkedin-bot/
    ```
 
 2. **Configure Environment**
+
    ```bash
    cp .env.example .env
    # Edit .env with your Telegram bot token
@@ -69,7 +74,8 @@ linkedin-bot/
 
 **Automatic**: Push to `main` branch triggers auto-deployment via GitHub Actions.
 
-**Manual**: 
+**Manual**:
+
 ```bash
 az containerapp up --name linkedin-bot-app --resource-group linkedin-bot-rg --source .
 ```
@@ -121,6 +127,7 @@ Bot: "Search Complete!
 ## 🔧 Development
 
 ### Project Structure
+
 - **Modular Design**: Clean separation of concerns
 - **Real-time Streaming**: Jobs delivered as found, not in batches
 - **Professional Logging**: Comprehensive monitoring
@@ -128,6 +135,7 @@ Bot: "Search Complete!
 - **Auto-scaling**: Azure Container Apps with 1-3 replicas
 
 ### Key Components
+
 - `src/bot/handlers.py`: Real-time conversation management
 - `src/scraper/linkedin.py`: Streaming job search with callbacks
 - `src/bot/messages.py`: Professional message templates
@@ -136,13 +144,16 @@ Bot: "Search Complete!
 ## 🚀 Deployment
 
 ### Automatic Deployment
+
 Every push to `main` automatically:
+
 1. Builds new Docker image
 2. Deploys to Azure Container Apps
 3. Runs health checks
 4. Updates live bot instantly
 
 ### Manual Commands
+
 ```bash
 # View logs
 az containerapp logs show --name linkedin-bot-app --resource-group linkedin-bot-rg --follow
@@ -177,13 +188,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Built with ❤️ for the developer community**
 
-   ```bash
-   # Copy the example environment file
-   cp config/.env.example .env
+```bash
+# Copy the example environment file
+cp config/.env.example .env
 
-   # Edit .env with your configuration
-   # Required: TELEGRAM_TOKEN
-   ```
+# Edit .env with your configuration
+# Required: TELEGRAM_TOKEN
+```
 
 4. **Run the bot:**
    ```bash
