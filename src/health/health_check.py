@@ -303,6 +303,36 @@ class HealthCheckServer:
         return runner
 
 
+def health_check() -> bool:
+    """
+    Simple synchronous health check for Docker healthcheck.
+    Returns True if healthy, False otherwise.
+    """
+    try:
+        # Basic import checks
+        import telegram
+        import selenium
+        
+        # Check if Telegram token is configured
+        if not os.getenv("TELEGRAM_BOT_TOKEN"):
+            return False
+        
+        # Check if Chrome is available
+        import shutil
+        chrome_available = shutil.which("google-chrome-stable") or shutil.which("google-chrome")
+        if not chrome_available:
+            logger.warning("Chrome not found, but continuing...")
+        
+        return True
+        
+    except ImportError as e:
+        logger.error(f"Import error in health check: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return False
+
+
 async def main():
     """Run standalone health check server."""
     server = HealthCheckServer()

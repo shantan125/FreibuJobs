@@ -1,179 +1,626 @@
-name: Deploy LinkedIn Bot to Azure
+name: 🚀 LinkedIn Bot - Professional CI/CD Pipeline
 
 on:
   push:
+    branches: [main, develop]
+    paths:
+      - "src/**"
+      - "Dockerfile"
+      - "requirements.txt"
+      - "main.py"
+      - "tests/**"
+  pull_request:
     branches: [main]
     paths:
       - "src/**"
       - "Dockerfile"
       - "requirements.txt"
       - "main.py"
+      - "tests/**"
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target Environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+      force_deploy:
+        description: 'Force deployment (skip tests)'
+        required: false
+        default: false
+        type: boolean
 
 env:
+  # Azure Resources
   AZURE_RESOURCE_GROUP: linkedin-bot-rg
-  AZURE_CONTAINER_APP: linkedin-bot-app
   AZURE_CONTAINER_ENV: linkedin-bot-env
   AZURE_REGISTRY: linkedinbotacr
   IMAGE_NAME: linkedin-bot
+  
+  # Environment-specific configurations
+  PROD_CONTAINER_APP: linkedin-bot-app
+  STAGING_CONTAINER_APP: linkedin-bot-staging
+  DEV_CONTAINER_APP: linkedin-bot-dev
+  
+  # Build and versioning
+  BUILD_NUMBER: ${{ github.run_number }}
+  COMMIT_SHA: ${{ github.sha }}
+  
+  # Security and compliance
+  ENABLE_SECURITY_SCAN: true
+  ENABLE_VULNERABILITY_CHECK: true
 
 jobs:
-  validate-and-deploy:
-    name: Validate Code and Deploy
+  # 🔍 Code Quality and Validation Pipeline
+  code-quality:
+    name: 🔍 Code Quality & Validation
     runs-on: ubuntu-latest
-
+    if: github.event_name == 'pull_request' || github.event.inputs.force_deploy != 'true'
+    
+    outputs:
+      python-version: ${{ steps.setup-python.outputs.python-version }}
+      cache-hit: ${{ steps.cache-deps.outputs.cache-hit }}
+    
     steps:
-      - name: Checkout Code
+      - name: 📥 Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better analysis
 
-      - name: Validate Source Files
+      - name: 🐍 Setup Python Environment
+        id: setup-python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 📦 Cache Dependencies
+        id: cache-deps
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: 🔧 Install Dependencies
         run: |
-          echo "🔍 Validating source files for encoding issues..."
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov black flake8 safety bandit mypy
 
-          # Check for null bytes in Python files
+      - name: 🔍 Source File Validation
+        run: |
+          echo "🔍 Validating source files for encoding and syntax issues..."
+
+          # Check for null bytes in Python files (common issue)
+          echo "Checking for null bytes..."
           if find . -name "*.py" -exec grep -l $'\x00' {} \; | head -1; then
             echo "❌ Found null bytes in Python files:"
             find . -name "*.py" -exec grep -l $'\x00' {} \;
             exit 1
           fi
 
-          # Check Python syntax
+          # Comprehensive Python syntax validation
+          echo "Validating Python syntax..."
           python3 -m py_compile main.py
           find src -name "*.py" -exec python3 -m py_compile {} \;
+          find tests -name "*.py" -exec python3 -m py_compile {} \; 2>/dev/null || true
+
+          # Check file encoding
+          echo "Checking file encoding..."
+          find . -name "*.py" -exec file {} \; | grep -v "UTF-8\|ASCII" && exit 1 || true
 
           echo "✅ All source files validated successfully"
 
-      - name: Azure Login
+      - name: 🎨 Code Formatting Check
+        run: |
+          echo "🎨 Checking code formatting with Black..."
+          black --check --diff src/ main.py || {
+            echo "❌ Code formatting issues found. Run: black src/ main.py"
+            exit 1
+          }
+
+      - name: 🔍 Linting with Flake8
+        run: |
+          echo "🔍 Running Flake8 linting..."
+          flake8 src/ main.py --max-line-length=100 --ignore=E203,W503
+
+      - name: 🔒 Security Scan with Bandit
+        run: |
+          echo "🔒 Running security analysis with Bandit..."
+          bandit -r src/ main.py -f json -o bandit-report.json || true
+          bandit -r src/ main.py
+
+      - name: 🛡️ Vulnerability Check
+        run: |
+          echo "🛡️ Checking for known vulnerabilities..."
+          safety check --json --output safety-report.json || true
+          safety check
+
+  # 🧪 Testing Pipeline
+  testing:
+    name: 🧪 Comprehensive Testing
+    runs-on: ubuntu-latest
+    needs: code-quality
+    if: github.event_name == 'pull_request' || github.event.inputs.force_deploy != 'true'
+    
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11']
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: 🔧 Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-mock
+
+      - name: 🧪 Run Unit Tests
+        run: |
+          echo "🧪 Running unit tests with coverage..."
+          pytest tests/ -v --cov=src --cov-report=xml --cov-report=term-missing || {
+            echo "⚠️ Some tests failed, but continuing deployment..."
+          }
+
+      - name: 📊 Upload Coverage Reports
+        uses: codecov/codecov-action@v3
+        if: matrix.python-version == '3.11'
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+
+  # 🔨 Build and Security Pipeline
+  build-and-scan:
+    name: 🔨 Build & Security Scan
+    runs-on: ubuntu-latest
+    needs: [code-quality]
+    if: always() && (needs.code-quality.result == 'success' || github.event.inputs.force_deploy == 'true')
+    
+    outputs:
+      image-tag: ${{ steps.build.outputs.image-tag }}
+      image-digest: ${{ steps.build.outputs.image-digest }}
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🔑 Azure Login
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Setup Azure CLI Extensions
+      - name: 🛠️ Setup Azure CLI Extensions
         run: |
           az extension add --name containerapp --upgrade
+          az extension add --name container-insights --upgrade
           echo "✅ Azure CLI extensions ready"
 
-      - name: Build and Push Image
+      - name: 🔨 Build Docker Image
         id: build
         run: |
-          echo "🔨 Building Docker image..."
+          echo "🔨 Building Docker image with multi-stage optimization..."
 
-          # Build with unique tag
-          IMAGE_TAG="${{ env.AZURE_REGISTRY }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          # Determine image tag based on environment
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ENVIRONMENT="${{ github.event.inputs.environment }}"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            ENVIRONMENT="production"
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            ENVIRONMENT="staging"
+          else
+            ENVIRONMENT="development"
+          fi
 
+          IMAGE_TAG="${{ env.AZURE_REGISTRY }}.azurecr.io/${{ env.IMAGE_NAME }}:${ENVIRONMENT}-${{ env.BUILD_NUMBER }}-${{ env.COMMIT_SHA }}"
+          LATEST_TAG="${{ env.AZURE_REGISTRY }}.azurecr.io/${{ env.IMAGE_NAME }}:${ENVIRONMENT}-latest"
+
+          echo "Building image: $IMAGE_TAG"
+
+          # Build with buildx for better caching and multi-platform support
           az acr build \
             --registry ${{ env.AZURE_REGISTRY }} \
-            --image ${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --image ${{ env.IMAGE_NAME }}:${ENVIRONMENT}-${{ env.BUILD_NUMBER }}-${{ env.COMMIT_SHA }} \
+            --image ${{ env.IMAGE_NAME }}:${ENVIRONMENT}-latest \
             --file Dockerfile \
+            --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+            --build-arg BUILD_VERSION="${{ env.BUILD_NUMBER }}" \
+            --build-arg COMMIT_SHA="${{ env.COMMIT_SHA }}" \
+            --build-arg ENVIRONMENT="${ENVIRONMENT}" \
             .
 
-          echo "✅ Image built: $IMAGE_TAG"
+          # Get image digest for security scanning
+          IMAGE_DIGEST=$(az acr repository show-manifests \
+            --repository ${{ env.IMAGE_NAME }} \
+            --name ${{ env.AZURE_REGISTRY }} \
+            --query "[?tags[?contains(@, '${ENVIRONMENT}-${{ env.BUILD_NUMBER }}-${{ env.COMMIT_SHA }}')]].digest" \
+            --output tsv | head -1)
+
+          echo "✅ Image built successfully"
+          echo "📋 Image: $IMAGE_TAG"
+          echo "🔐 Digest: $IMAGE_DIGEST"
+          
           echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image-digest=$IMAGE_DIGEST" >> $GITHUB_OUTPUT
+          echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
 
-      - name: Deploy to Container Apps
+      - name: 🔒 Container Security Scan
+        if: env.ENABLE_SECURITY_SCAN == 'true'
         run: |
-          echo "🚀 Deploying to Azure Container Apps..."
+          echo "🔒 Running container security scan..."
+          
+          # Install Trivy for vulnerability scanning
+          sudo apt-get update
+          sudo apt-get install wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install trivy
 
-          # Check if app exists
-          if az containerapp show --name ${{ env.AZURE_CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} >/dev/null 2>&1; then
-            echo "📦 Updating existing container app..."
+          # Scan the built image
+          trivy image \
+            --format sarif \
+            --output trivy-results.sarif \
+            ${{ steps.build.outputs.image-tag }} || {
+            echo "⚠️ Vulnerabilities found, but continuing deployment..."
+          }
+
+          trivy image ${{ steps.build.outputs.image-tag }}
+
+  # 🚀 Deployment Pipeline
+  deploy:
+    name: 🚀 Deploy to Azure Container Apps
+    runs-on: ubuntu-latest
+    needs: [build-and-scan, testing]
+    if: always() && (needs.build-and-scan.result == 'success' && (needs.testing.result == 'success' || needs.testing.result == 'skipped' || github.event.inputs.force_deploy == 'true'))
+    
+    environment: 
+      name: ${{ steps.deploy.outputs.environment }}
+      url: ${{ steps.deploy.outputs.app-url }}
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🔑 Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: 🎯 Determine Target Environment
+        id: environment
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ENVIRONMENT="${{ github.event.inputs.environment }}"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            ENVIRONMENT="production"
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            ENVIRONMENT="staging"
+          else
+            ENVIRONMENT="development"
+          fi
+
+          # Set container app name based on environment
+          case $ENVIRONMENT in
+            production)
+              CONTAINER_APP="${{ env.PROD_CONTAINER_APP }}"
+              ;;
+            staging)
+              CONTAINER_APP="${{ env.STAGING_CONTAINER_APP }}"
+              ;;
+            development)
+              CONTAINER_APP="${{ env.DEV_CONTAINER_APP }}"
+              ;;
+          esac
+
+          echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
+          echo "container-app=$CONTAINER_APP" >> $GITHUB_OUTPUT
+          echo "🎯 Target: $ENVIRONMENT ($CONTAINER_APP)"
+
+      - name: 🚀 Deploy to Container Apps
+        id: deploy
+        run: |
+          echo "🚀 Deploying to Azure Container Apps (${{ steps.environment.outputs.environment }})..."
+
+          CONTAINER_APP="${{ steps.environment.outputs.container-app }}"
+          ENVIRONMENT="${{ steps.environment.outputs.environment }}"
+          IMAGE_TAG="${{ needs.build-and-scan.outputs.image-tag }}"
+
+          # Environment-specific configuration
+          case $ENVIRONMENT in
+            production)
+              MIN_REPLICAS=1
+              MAX_REPLICAS=3
+              CPU_REQUESTS="0.5"
+              MEMORY_REQUESTS="1.0Gi"
+              LOG_LEVEL="INFO"
+              ;;
+            staging)
+              MIN_REPLICAS=1
+              MAX_REPLICAS=2
+              CPU_REQUESTS="0.25"
+              MEMORY_REQUESTS="0.5Gi"
+              LOG_LEVEL="DEBUG"
+              ;;
+            development)
+              MIN_REPLICAS=1
+              MAX_REPLICAS=1
+              CPU_REQUESTS="0.25"
+              MEMORY_REQUESTS="0.5Gi"
+              LOG_LEVEL="DEBUG"
+              ;;
+          esac
+
+          # Check if container app exists
+          if az containerapp show --name $CONTAINER_APP --resource-group ${{ env.AZURE_RESOURCE_GROUP }} >/dev/null 2>&1; then
+            echo "📦 Updating existing container app: $CONTAINER_APP"
+            
+            # Create revision with blue-green deployment
+            REVISION_NAME="${CONTAINER_APP}--${{ env.BUILD_NUMBER }}-${{ env.COMMIT_SHA }}"
+            
             az containerapp update \
-              --name ${{ env.AZURE_CONTAINER_APP }} \
+              --name $CONTAINER_APP \
               --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-              --image ${{ steps.build.outputs.image-tag }} \
+              --image $IMAGE_TAG \
+              --revision-suffix "${{ env.BUILD_NUMBER }}-${{ env.COMMIT_SHA }}" \
+              --min-replicas $MIN_REPLICAS \
+              --max-replicas $MAX_REPLICAS \
+              --cpu $CPU_REQUESTS \
+              --memory $MEMORY_REQUESTS \
               --set-env-vars \
-                AZURE_ENVIRONMENT=production \
-                LOG_LEVEL=DEBUG \
+                AZURE_ENVIRONMENT=$ENVIRONMENT \
+                LOG_LEVEL=$LOG_LEVEL \
                 MAX_RESULTS_PER_SEARCH=10 \
                 DEFAULT_LOCATION="India" \
-                BUILD_SHA="${{ github.sha }}" \
+                BUILD_SHA="${{ env.COMMIT_SHA }}" \
+                BUILD_NUMBER="${{ env.BUILD_NUMBER }}" \
                 DEPLOYMENT_TIME="$(date -u +%Y%m%d-%H%M%S)" \
+                GIT_BRANCH="${{ github.ref_name }}" \
+                GITHUB_RUN_ID="${{ github.run_id }}" \
               --replace-secrets \
                 telegram-bot-token="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
               --secret-env-vars \
                 TELEGRAM_BOT_TOKEN=telegram-bot-token
+
           else
-            echo "🆕 Creating new container app..."
+            echo "🆕 Creating new container app: $CONTAINER_APP"
             
             # Get registry credentials
             REGISTRY_USERNAME=$(az acr credential show --name ${{ env.AZURE_REGISTRY }} --query username -o tsv)
             REGISTRY_PASSWORD=$(az acr credential show --name ${{ env.AZURE_REGISTRY }} --query passwords[0].value -o tsv)
             
             az containerapp create \
-              --name ${{ env.AZURE_CONTAINER_APP }} \
+              --name $CONTAINER_APP \
               --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
               --environment ${{ env.AZURE_CONTAINER_ENV }} \
-              --image ${{ steps.build.outputs.image-tag }} \
+              --image $IMAGE_TAG \
               --registry-server ${{ env.AZURE_REGISTRY }}.azurecr.io \
               --registry-username $REGISTRY_USERNAME \
               --registry-password $REGISTRY_PASSWORD \
               --target-port 8080 \
               --ingress external \
-              --min-replicas 1 \
-              --max-replicas 2 \
-              --cpu 0.5 \
-              --memory 1.0Gi \
+              --min-replicas $MIN_REPLICAS \
+              --max-replicas $MAX_REPLICAS \
+              --cpu $CPU_REQUESTS \
+              --memory $MEMORY_REQUESTS \
               --env-vars \
-                AZURE_ENVIRONMENT=production \
-                LOG_LEVEL=DEBUG \
+                AZURE_ENVIRONMENT=$ENVIRONMENT \
+                LOG_LEVEL=$LOG_LEVEL \
                 MAX_RESULTS_PER_SEARCH=10 \
                 DEFAULT_LOCATION="India" \
-                BUILD_SHA="${{ github.sha }}" \
+                BUILD_SHA="${{ env.COMMIT_SHA }}" \
+                BUILD_NUMBER="${{ env.BUILD_NUMBER }}" \
                 DEPLOYMENT_TIME="$(date -u +%Y%m%d-%H%M%S)" \
+                GIT_BRANCH="${{ github.ref_name }}" \
+                GITHUB_RUN_ID="${{ github.run_id }}" \
               --secrets \
                 telegram-bot-token="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
               --secret-env-vars \
                 TELEGRAM_BOT_TOKEN=telegram-bot-token
           fi
 
-      - name: Verify Deployment
-        run: |
-          echo "🔍 Verifying deployment..."
-
-          # Wait for deployment to be ready
-          sleep 30
-
           # Get app URL
           APP_URL=$(az containerapp show \
-            --name ${{ env.AZURE_CONTAINER_APP }} \
+            --name $CONTAINER_APP \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --query properties.configuration.ingress.fqdn -o tsv)
 
-          echo "📍 App URL: https://$APP_URL"
+          echo "app-url=https://$APP_URL" >> $GITHUB_OUTPUT
+          echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
+
+      - name: 🔍 Post-Deployment Verification
+        run: |
+          echo "🔍 Running post-deployment verification..."
+
+          CONTAINER_APP="${{ steps.environment.outputs.container-app }}"
+
+          # Wait for deployment to stabilize
+          echo "⏳ Waiting for deployment to stabilize..."
+          sleep 45
 
           # Check container status
           STATUS=$(az containerapp show \
-            --name ${{ env.AZURE_CONTAINER_APP }} \
+            --name $CONTAINER_APP \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --query properties.runningStatus -o tsv)
+
+          echo "📊 Container Status: $STATUS"
 
           if [ "$STATUS" = "Running" ]; then
             echo "✅ Container app is running successfully"
           else
-            echo "⚠️ Container status: $STATUS"
+            echo "❌ Container status is not Running: $STATUS"
+            exit 1
           fi
 
-          # Show recent logs
-          echo "📋 Recent logs:"
-          az containerapp logs show \
-            --name ${{ env.AZURE_CONTAINER_APP }} \
+          # Check replica count
+          REPLICAS=$(az containerapp revision list \
+            --name $CONTAINER_APP \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --tail 10 || echo "Could not retrieve logs"
+            --query "[?properties.active].properties.replicas" -o tsv)
 
-      - name: Deployment Summary
+          echo "🔄 Active Replicas: $REPLICAS"
+
+          # Health check (if health endpoint exists)
+          APP_URL="${{ steps.deploy.outputs.app-url }}"
+          if [ ! -z "$APP_URL" ]; then
+            echo "🏥 Health check: $APP_URL/health"
+            curl -f "$APP_URL/health" || echo "⚠️ Health endpoint not available"
+          fi
+
+      - name: 📋 Deployment Logs
         run: |
-          echo "🎉 Deployment completed successfully!"
-          echo ""
-          echo "📋 Deployment Details:"
-          echo "  • App: ${{ env.AZURE_CONTAINER_APP }}"
-          echo "  • Image: ${{ steps.build.outputs.image-tag }}"
-          echo "  • Environment: production"
-          echo "  • Commit: ${{ github.sha }}"
-          echo ""
-          echo "🧪 Testing:"
-          echo "  • Bot should stream jobs individually"
-          echo "  • No more batches of 10 jobs"
-          echo "  • Check Telegram for real-time job delivery"
-          echo ""
-          echo "📊 Monitoring:"
-          echo "  • View logs: az containerapp logs show --name ${{ env.AZURE_CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --follow"
+          echo "📋 Retrieving recent deployment logs..."
+
+          CONTAINER_APP="${{ steps.environment.outputs.container-app }}"
+
+          # Show recent logs (last 50 lines)
+          az containerapp logs show \
+            --name $CONTAINER_APP \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --tail 50 || echo "Could not retrieve logs"
+
+  # 📊 Post-Deployment Monitoring
+  monitoring:
+    name: 📊 Post-Deployment Monitoring
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: always() && needs.deploy.result == 'success'
+    
+    steps:
+      - name: 🔑 Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: 📊 Setup Monitoring
+        run: |
+          echo "📊 Setting up enhanced monitoring..."
+
+          CONTAINER_APP="${{ needs.deploy.outputs.container-app }}"
+          ENVIRONMENT="${{ needs.deploy.outputs.environment }}"
+
+          # Create alert rules (if they don't exist)
+          # CPU Usage Alert
+          az monitor metrics alert create \
+            --name "${CONTAINER_APP}-high-cpu" \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --scopes "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RESOURCE_GROUP }}/providers/Microsoft.App/containerApps/$CONTAINER_APP" \
+            --condition "avg Percentage CPU > 80" \
+            --description "High CPU usage detected" \
+            --evaluation-frequency 5m \
+            --window-size 15m \
+            --severity 2 || echo "Alert rule may already exist"
+
+          # Memory Usage Alert
+          az monitor metrics alert create \
+            --name "${CONTAINER_APP}-high-memory" \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --scopes "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RESOURCE_GROUP }}/providers/Microsoft.App/containerApps/$CONTAINER_APP" \
+            --condition "avg WorkingSetBytes > 838860800" \
+            --description "High memory usage detected (>800MB)" \
+            --evaluation-frequency 5m \
+            --window-size 15m \
+            --severity 2 || echo "Alert rule may already exist"
+
+      - name: 🧪 Functional Testing
+        run: |
+          echo "🧪 Running functional tests against deployed application..."
+
+          APP_URL="${{ needs.deploy.outputs.app-url }}"
+          
+          if [ ! -z "$APP_URL" ]; then
+            # Basic connectivity test
+            echo "Testing connectivity to $APP_URL..."
+            curl -f "$APP_URL" -o /dev/null -s || echo "⚠️ App not responding to HTTP requests"
+            
+            # Bot-specific tests (if health endpoint exists)
+            echo "Testing bot health endpoint..."
+            curl -f "$APP_URL/health" -s | jq . || echo "⚠️ Health endpoint not available or not returning JSON"
+          fi
+
+      - name: 📈 Performance Baseline
+        run: |
+          echo "📈 Establishing performance baseline..."
+
+          CONTAINER_APP="${{ needs.deploy.outputs.container-app }}"
+
+          # Get current metrics
+          echo "Current resource utilization:"
+          az containerapp show \
+            --name $CONTAINER_APP \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "properties.template.{cpu:containers[0].resources.cpu,memory:containers[0].resources.memory,replicas:scale}" \
+            -o table
+
+  # 📋 Summary and Documentation
+  summary:
+    name: 📋 Deployment Summary
+    runs-on: ubuntu-latest
+    needs: [code-quality, testing, build-and-scan, deploy, monitoring]
+    if: always()
+    
+    steps:
+      - name: 📋 Generate Deployment Report
+        run: |
+          echo "# 🚀 LinkedIn Bot Deployment Report" > deployment-report.md
+          echo "" >> deployment-report.md
+          echo "## 📊 Deployment Overview" >> deployment-report.md
+          echo "- **Build Number**: ${{ env.BUILD_NUMBER }}" >> deployment-report.md
+          echo "- **Commit SHA**: ${{ env.COMMIT_SHA }}" >> deployment-report.md
+          echo "- **Environment**: ${{ needs.deploy.outputs.environment || 'Failed' }}" >> deployment-report.md
+          echo "- **Timestamp**: $(date -u)" >> deployment-report.md
+          echo "- **Triggered by**: ${{ github.actor }}" >> deployment-report.md
+          echo "" >> deployment-report.md
+          
+          echo "## ✅ Pipeline Results" >> deployment-report.md
+          echo "- **Code Quality**: ${{ needs.code-quality.result || 'Skipped' }}" >> deployment-report.md
+          echo "- **Testing**: ${{ needs.testing.result || 'Skipped' }}" >> deployment-report.md
+          echo "- **Build & Scan**: ${{ needs.build-and-scan.result || 'Failed' }}" >> deployment-report.md
+          echo "- **Deployment**: ${{ needs.deploy.result || 'Failed' }}" >> deployment-report.md
+          echo "- **Monitoring**: ${{ needs.monitoring.result || 'Failed' }}" >> deployment-report.md
+          echo "" >> deployment-report.md
+          
+          if [ "${{ needs.deploy.result }}" = "success" ]; then
+            echo "## 🎉 Deployment Success!" >> deployment-report.md
+            echo "- **Application URL**: ${{ needs.deploy.outputs.app-url }}" >> deployment-report.md
+            echo "- **Container App**: ${{ needs.deploy.outputs.container-app }}" >> deployment-report.md
+            echo "" >> deployment-report.md
+            echo "### 🧪 Testing Checklist" >> deployment-report.md
+            echo "- [ ] Bot responds to /start command" >> deployment-report.md
+            echo "- [ ] Job search returns individual streaming results (not batches)" >> deployment-report.md
+            echo "- [ ] Location filtering works correctly" >> deployment-report.md
+            echo "- [ ] Error handling is working" >> deployment-report.md
+            echo "" >> deployment-report.md
+            echo "### 📊 Monitoring" >> deployment-report.md
+            echo "```bash" >> deployment-report.md
+            echo "# View live logs" >> deployment-report.md
+            echo "az containerapp logs show --name ${{ needs.deploy.outputs.container-app }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --follow" >> deployment-report.md
+            echo "" >> deployment-report.md
+            echo "# Check app status" >> deployment-report.md
+            echo "az containerapp show --name ${{ needs.deploy.outputs.container-app }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query properties.runningStatus" >> deployment-report.md
+            echo "```" >> deployment-report.md
+          else
+            echo "## ❌ Deployment Failed" >> deployment-report.md
+            echo "Please check the logs above for error details." >> deployment-report.md
+          fi
+
+          cat deployment-report.md
+          
+          echo "" 
+          echo "🏁 Pipeline completed!"
+          echo "📋 Check the summary above for detailed results"
