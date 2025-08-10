@@ -1,4 +1,4 @@
-name: Deploy LinkedIn Bot to Azure - Clean Streaming Fix
+name: Deploy LinkedIn Bot to Azure
 
 on:
   push:
@@ -8,7 +8,6 @@ on:
       - "Dockerfile"
       - "requirements.txt"
       - "main.py"
-      - ".github/workflows/**"
   workflow_dispatch:
 
 env:
@@ -19,347 +18,162 @@ env:
   IMAGE_NAME: linkedin-bot
 
 jobs:
-  setup-infrastructure:
-    name: Setup Azure Infrastructure
+  validate-and-deploy:
+    name: Validate Code and Deploy
     runs-on: ubuntu-latest
-    outputs:
-      registry-exists: ${{ steps.check-resources.outputs.registry-exists }}
-      environment-exists: ${{ steps.check-resources.outputs.environment-exists }}
 
     steps:
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Install Azure Container Apps Extension
-        run: |
-          echo "🔧 Installing Azure Container Apps extension..."
-          az extension add --name containerapp --upgrade
-          echo "✅ Extension ready"
-
-      - name: Check and Create Resource Group
-        run: |
-          echo "🔧 Checking resource group..."
-          if az group show --name ${{ env.AZURE_RESOURCE_GROUP }} > /dev/null 2>&1; then
-            echo "✅ Resource group exists"
-          else
-            echo "🆕 Creating resource group..."
-            az group create \
-              --name ${{ env.AZURE_RESOURCE_GROUP }} \
-              --location eastus
-            echo "✅ Resource group created"
-          fi
-
-      - name: Check and Create Container Registry
-        id: check-resources
-        run: |
-          echo "🔧 Checking container registry..."
-          if az acr show --name ${{ env.AZURE_REGISTRY }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} > /dev/null 2>&1; then
-            echo "✅ Container registry exists"
-            echo "registry-exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "🆕 Creating container registry..."
-            az acr create \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-              --name ${{ env.AZURE_REGISTRY }} \
-              --sku Basic \
-              --admin-enabled true
-            echo "✅ Container registry created"
-            echo "registry-exists=false" >> $GITHUB_OUTPUT
-          fi
-
-          echo "🔧 Checking container environment..."
-          if az containerapp env show --name ${{ env.AZURE_CONTAINER_ENV }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} > /dev/null 2>&1; then
-            echo "✅ Container environment exists"
-            echo "environment-exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "🆕 Creating container environment..."
-            az containerapp env create \
-              --name ${{ env.AZURE_CONTAINER_ENV }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-              --location eastus
-            echo "✅ Container environment created"
-            echo "environment-exists=false" >> $GITHUB_OUTPUT
-          fi
-
-  build-image:
-    name: Build and Push Docker Image
-    runs-on: ubuntu-latest
-    needs: setup-infrastructure
-    outputs:
-      image-url: ${{ steps.build.outputs.image-url }}
-
-    steps:
-      - name: Checkout code
+      - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Validate Source Files
+        run: |
+          echo "🔍 Validating source files for encoding issues..."
+
+          # Check for null bytes in Python files
+          if find . -name "*.py" -exec grep -l $'\x00' {} \; | head -1; then
+            echo "❌ Found null bytes in Python files:"
+            find . -name "*.py" -exec grep -l $'\x00' {} \;
+            exit 1
+          fi
+
+          # Check Python syntax
+          python3 -m py_compile main.py
+          find src -name "*.py" -exec python3 -m py_compile {} \;
+
+          echo "✅ All source files validated successfully"
+
       - name: Azure Login
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Setup Azure CLI Extensions
+        run: |
+          az extension add --name containerapp --upgrade
+          echo "✅ Azure CLI extensions ready"
 
       - name: Build and Push Image
         id: build
         run: |
           echo "🔨 Building Docker image..."
-          echo "📝 Commit SHA: ${{ github.sha }}"
 
-          # Authenticate with registry
-          az acr login --name ${{ env.AZURE_REGISTRY }}
-
+          # Build with unique tag
           IMAGE_TAG="${{ env.AZURE_REGISTRY }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}"
 
-          echo "🏗️ Building image: $IMAGE_TAG"
           az acr build \
             --registry ${{ env.AZURE_REGISTRY }} \
             --image ${{ env.IMAGE_NAME }}:${{ github.sha }} \
             --file Dockerfile \
             .
 
-          echo "✅ Image built and pushed: $IMAGE_TAG"
-          echo "image-url=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "✅ Image built: $IMAGE_TAG"
+          echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
 
-  cleanup-old-deployment:
-    name: Clean Up Old Deployment
-    runs-on: ubuntu-latest
-    needs: [setup-infrastructure, build-image]
-
-    steps:
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Install Azure Container Apps Extension
+      - name: Deploy to Container Apps
         run: |
-          echo "🔧 Installing Azure Container Apps extension..."
-          az extension add --name containerapp --upgrade
-          echo "✅ Extension ready"
+          echo "🚀 Deploying to Azure Container Apps..."
 
-      - name: Delete Existing Container App
-        run: |
-          echo "🗑️ Removing existing container app for clean deployment..."
-
-          if az containerapp show --name ${{ env.AZURE_CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} > /dev/null 2>&1; then
-            echo "🔍 Found existing container app, deleting..."
-            az containerapp delete \
+          # Check if app exists
+          if az containerapp show --name ${{ env.AZURE_CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} >/dev/null 2>&1; then
+            echo "📦 Updating existing container app..."
+            az containerapp update \
               --name ${{ env.AZURE_CONTAINER_APP }} \
               --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-              --yes
-            echo "✅ Existing container app deleted"
-            
-            echo "⏳ Waiting for cleanup to complete..."
-            sleep 60
+              --image ${{ steps.build.outputs.image-tag }} \
+              --set-env-vars \
+                AZURE_ENVIRONMENT=production \
+                LOG_LEVEL=DEBUG \
+                MAX_RESULTS_PER_SEARCH=10 \
+                DEFAULT_LOCATION="India" \
+                BUILD_SHA="${{ github.sha }}" \
+                DEPLOYMENT_TIME="$(date -u +%Y%m%d-%H%M%S)" \
+              --replace-secrets \
+                telegram-bot-token="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
+              --secret-env-vars \
+                TELEGRAM_BOT_TOKEN=telegram-bot-token
           else
-            echo "ℹ️ No existing container app found"
-          fi
-
-  deploy-fresh-container:
-    name: Deploy Fresh Container
-    runs-on: ubuntu-latest
-    needs: [setup-infrastructure, build-image, cleanup-old-deployment]
-    outputs:
-      app-url: ${{ steps.deploy.outputs.app-url }}
-      revision: ${{ steps.deploy.outputs.revision }}
-
-    steps:
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Install Azure Container Apps Extension
-        run: |
-          echo "🔧 Installing Azure Container Apps extension..."
-          az extension add --name containerapp --upgrade
-          echo "✅ Extension ready"
-
-      - name: Create Fresh Container App
-        id: deploy
-        run: |
-          echo "🆕 Creating fresh container app with streaming code..."
-          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          echo "🕒 Deployment timestamp: $TIMESTAMP"
-
-          # Get registry credentials
-          REGISTRY_USERNAME=$(az acr credential show --name ${{ env.AZURE_REGISTRY }} --query username --output tsv)
-          REGISTRY_PASSWORD=$(az acr credential show --name ${{ env.AZURE_REGISTRY }} --query passwords[0].value --output tsv)
-
-          echo "🔐 Registry authentication configured"
-
-          # Verify image exists
-          echo "🔍 Verifying image exists..."
-          IMAGE_EXISTS=$(az acr repository show --name ${{ env.AZURE_REGISTRY }} --image ${{ env.IMAGE_NAME }}:${{ github.sha }} --query name --output tsv 2>/dev/null || echo "not-found")
-          if [ "$IMAGE_EXISTS" = "not-found" ]; then
-            echo "❌ Image not found in registry!"
-            exit 1
-          fi
-          echo "✅ Image verified: ${{ needs.build-image.outputs.image-url }}"
-
-          az containerapp create \
-            --name ${{ env.AZURE_CONTAINER_APP }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --environment ${{ env.AZURE_CONTAINER_ENV }} \
-            --image ${{ needs.build-image.outputs.image-url }} \
-            --registry-server ${{ env.AZURE_REGISTRY }}.azurecr.io \
-            --registry-username $REGISTRY_USERNAME \
-            --registry-password $REGISTRY_PASSWORD \
-            --target-port 8080 \
-            --ingress external \
-            --min-replicas 1 \
-            --max-replicas 3 \
-            --cpu 0.5 \
-            --memory 1.0Gi \
-            --env-vars \
-              TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
-              AZURE_ENVIRONMENT=production \
-              LOG_LEVEL=DEBUG \
-              MAX_RESULTS_PER_SEARCH=10 \
-              DEFAULT_LOCATION="India" \
-              DEPLOYMENT_ID="streaming-force-$TIMESTAMP" \
-              BUILD_SHA="${{ github.sha }}"
-
-          echo "✅ Fresh container app created!"
-
-          # Get app details
-          FQDN=$(az containerapp show \
-            --name ${{ env.AZURE_CONTAINER_APP }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query properties.configuration.ingress.fqdn \
-            --output tsv)
-
-          REVISION=$(az containerapp show \
-            --name ${{ env.AZURE_CONTAINER_APP }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query properties.latestRevisionName \
-            --output tsv)
-
-          echo "📍 App URL: https://$FQDN"
-          echo "📦 Revision: $REVISION"
-
-          echo "app-url=https://$FQDN" >> $GITHUB_OUTPUT
-          echo "revision=$REVISION" >> $GITHUB_OUTPUT
-
-  verify-deployment:
-    name: Verify Deployment
-    runs-on: ubuntu-latest
-    needs: [deploy-fresh-container]
-
-    steps:
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Install Azure Container Apps Extension
-        run: |
-          echo "🔧 Installing Azure Container Apps extension..."
-          az extension add --name containerapp --upgrade
-          echo "✅ Extension ready"
-
-      - name: Wait for Container Startup
-        run: |
-          echo "⏳ Waiting for container to start (90 seconds)..."
-          sleep 90
-
-      - name: Health Check
-        run: |
-          echo "🔍 Performing health checks..."
-          APP_URL="${{ needs.deploy-fresh-container.outputs.app-url }}"
-
-          for i in {1..5}; do
-            echo "🔍 Health check attempt $i/5..."
-            if curl -f -s "$APP_URL/health" > /dev/null 2>&1; then
-              echo "✅ Container is healthy and responding!"
-              break
-            else
-              echo "⚠️ Health check failed, retrying in 30s..."
-              sleep 30
-            fi
+            echo "🆕 Creating new container app..."
             
-            if [ $i -eq 5 ]; then
-              echo "❌ Health check failed after 5 attempts"
-              echo "📋 Recent container logs:"
-              az containerapp logs show \
-                --name ${{ env.AZURE_CONTAINER_APP }} \
-                --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-                --tail 20 || echo "Could not retrieve logs"
-            fi
-          done
+            # Get registry credentials
+            REGISTRY_USERNAME=$(az acr credential show --name ${{ env.AZURE_REGISTRY }} --query username -o tsv)
+            REGISTRY_PASSWORD=$(az acr credential show --name ${{ env.AZURE_REGISTRY }} --query passwords[0].value -o tsv)
+            
+            az containerapp create \
+              --name ${{ env.AZURE_CONTAINER_APP }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --environment ${{ env.AZURE_CONTAINER_ENV }} \
+              --image ${{ steps.build.outputs.image-tag }} \
+              --registry-server ${{ env.AZURE_REGISTRY }}.azurecr.io \
+              --registry-username $REGISTRY_USERNAME \
+              --registry-password $REGISTRY_PASSWORD \
+              --target-port 8080 \
+              --ingress external \
+              --min-replicas 1 \
+              --max-replicas 2 \
+              --cpu 0.5 \
+              --memory 1.0Gi \
+              --env-vars \
+                AZURE_ENVIRONMENT=production \
+                LOG_LEVEL=DEBUG \
+                MAX_RESULTS_PER_SEARCH=10 \
+                DEFAULT_LOCATION="India" \
+                BUILD_SHA="${{ github.sha }}" \
+                DEPLOYMENT_TIME="$(date -u +%Y%m%d-%H%M%S)" \
+              --secrets \
+                telegram-bot-token="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
+              --secret-env-vars \
+                TELEGRAM_BOT_TOKEN=telegram-bot-token
+          fi
 
-      - name: Verify Configuration
+      - name: Verify Deployment
         run: |
-          echo "🔧 Checking deployment configuration..."
+          echo "🔍 Verifying deployment..."
 
-          echo "📋 Environment Variables:"
-          az containerapp show \
+          # Wait for deployment to be ready
+          sleep 30
+
+          # Get app URL
+          APP_URL=$(az containerapp show \
             --name ${{ env.AZURE_CONTAINER_APP }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query properties.template.containers[0].env \
-            --output table
+            --query properties.configuration.ingress.fqdn -o tsv)
 
-          echo "📦 Container Image:"
-          az containerapp show \
+          echo "📍 App URL: https://$APP_URL"
+
+          # Check container status
+          STATUS=$(az containerapp show \
             --name ${{ env.AZURE_CONTAINER_APP }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query properties.template.containers[0].image \
-            --output tsv
+            --query properties.runningStatus -o tsv)
 
-  deployment-summary:
-    name: Deployment Summary
-    runs-on: ubuntu-latest
-    needs: [deploy-fresh-container, verify-deployment]
-    if: always()
+          if [ "$STATUS" = "Running" ]; then
+            echo "✅ Container app is running successfully"
+          else
+            echo "⚠️ Container status: $STATUS"
+          fi
 
-    steps:
-      - name: Generate Summary
+          # Show recent logs
+          echo "📋 Recent logs:"
+          az containerapp logs show \
+            --name ${{ env.AZURE_CONTAINER_APP }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --tail 10 || echo "Could not retrieve logs"
+
+      - name: Deployment Summary
         run: |
-          echo "🎉 Deployment Process Completed!"
+          echo "🎉 Deployment completed successfully!"
           echo ""
           echo "📋 Deployment Details:"
           echo "  • App: ${{ env.AZURE_CONTAINER_APP }}"
-          echo "  • Revision: ${{ needs.deploy-fresh-container.outputs.revision }}"
-          echo "  • URL: ${{ needs.deploy-fresh-container.outputs.app-url }}"
+          echo "  • Image: ${{ steps.build.outputs.image-tag }}"
+          echo "  • Environment: production"
           echo "  • Commit: ${{ github.sha }}"
-          echo "  • Build Time: $(date)"
           echo ""
-          echo "🔧 Management Commands:"
+          echo "🧪 Testing:"
+          echo "  • Bot should stream jobs individually"
+          echo "  • No more batches of 10 jobs"
+          echo "  • Check Telegram for real-time job delivery"
+          echo ""
+          echo "📊 Monitoring:"
           echo "  • View logs: az containerapp logs show --name ${{ env.AZURE_CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --follow"
-          echo "  • Scale app: az containerapp update --name ${{ env.AZURE_CONTAINER_APP }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --min-replicas 1"
-          echo ""
-          echo "🤖 Testing:"
-          echo "  • Open Telegram and test the bot"
-          echo "  • Jobs should now stream individually (not in batches of 10)"
-          echo "  • Check logs for DEBUG streaming messages"
-
-          # GitHub Actions Summary
-          cat >> $GITHUB_STEP_SUMMARY << EOF
-          ## 🚀 LinkedIn Bot Deployment Complete
-
-          ### ✅ Deployment Status: SUCCESS
-
-          | Component | Status | Details |
-          |-----------|--------|---------|
-          | **Container App** | ✅ Created | Fresh deployment with streaming code |
-          | **Image** | ✅ Built | SHA: \`${{ github.sha }}\` |
-          | **URL** | ✅ Active | ${{ needs.deploy-fresh-container.outputs.app-url }} |
-          | **Revision** | ✅ Latest | ${{ needs.deploy-fresh-container.outputs.revision }} |
-
-          ### 🎯 What's New
-          - **Complete container replacement** (not update)
-          - **Streaming functionality** with individual job delivery
-          - **Debug logging** enabled for troubleshooting
-          - **Enhanced error handling** and deployment verification
-
-          ### 🧪 Testing Instructions
-          1. Open Telegram and message your bot
-          2. Request job search (e.g., "Python Developer")
-          3. **Expected**: Jobs appear one-by-one as they're found
-          4. **Fixed**: No more batches of 10 jobs at once
-
-          ### 📊 Monitoring
-          - **Logs**: Use Azure CLI or portal to check real-time logs
-          - **Health**: Monitor the health endpoint
-          - **Performance**: Check individual job streaming behavior
-          EOF
